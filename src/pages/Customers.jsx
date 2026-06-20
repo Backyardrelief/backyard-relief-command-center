@@ -1,114 +1,80 @@
-import { useState } from "react";
-import { v4 as uuid } from "uuid";
+import { useState, useEffect } from "react";
+import { Box, Typography, Button } from "@mui/material";
+
+import CustomerTable from "../components/customers/CustomerTable";
+import CustomerDialog from "../components/customers/CustomerDialog";
+
+const emptyCustomer = {
+  firstName: "",
+  lastName: "",
+  address: "",
+  city: "",
+  phone: "",
+  email: "",
+  package: "Basic Care",
+  frequency: "Biweekly",
+  dogs: 1,
+  yardSize: "Under 1/8 Acre",
+  wasteDisposal: false,
+  deodorizing: false,
+  gateCode: "",
+  notes: "",
+};
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [customer, setCustomer] = useState(emptyCustomer);
 
-  const [form, setForm] = useState({
-    name: "",
-    package: "Basic Care",
-    price: 75,
-  });
+  useEffect(() => {
+    const saved = localStorage.getItem("customers");
 
-  function addCustomer(e) {
-    e.preventDefault();
+    if (saved) {
+      setCustomers(JSON.parse(saved));
+    }
+  }, []);
 
-    if (!form.name.trim()) return;
+  useEffect(() => {
+    localStorage.setItem("customers", JSON.stringify(customers));
+  }, [customers]);
 
+  const addCustomer = () => {
     setCustomers([
       ...customers,
       {
-        id: uuid(),
-        ...form,
+        id: Date.now(),
+        ...customer,
       },
     ]);
 
-    setForm({
-      name: "",
-      package: "Basic Care",
-      price: 75,
-    });
-  }
-
-  function packageChanged(e) {
-    const pkg = e.target.value;
-
-    let price = 75;
-
-    if (pkg === "Standard Care") price = 98;
-    if (pkg === "Complete Care") price = 105;
-
-    setForm({
-      ...form,
-      package: pkg,
-      price,
-    });
-  }
-
-  const monthlyRevenue = customers.reduce(
-    (sum, c) => sum + c.price,
-    0
-  );
+    setCustomer(emptyCustomer);
+    setOpen(false);
+  };
 
   return (
-    <div>
+    <Box p={4}>
+      <Typography variant="h4" mb={3}>
+        Customers
+      </Typography>
 
-      <h1>Customers</h1>
+      <Button
+        variant="contained"
+        color="success"
+        onClick={() => setOpen(true)}
+        sx={{ mb: 3 }}
+      >
+        Add Customer
+      </Button>
 
-      <h2>Monthly Revenue: ${monthlyRevenue}</h2>
+      <CustomerTable customers={customers} />
 
-      <form onSubmit={addCustomer}>
-
-        <input
-          placeholder="Customer Name"
-          value={form.name}
-          onChange={(e) =>
-            setForm({
-              ...form,
-              name: e.target.value,
-            })
-          }
-        />
-
-        <br /><br />
-
-        <select
-          value={form.package}
-          onChange={packageChanged}
-        >
-          <option>Basic Care</option>
-          <option>Standard Care</option>
-          <option>Complete Care</option>
-        </select>
-
-        <br /><br />
-
-        <button type="submit">
-          Save Customer
-        </button>
-
-      </form>
-
-      <hr />
-
-      {customers.map((customer) => (
-        <div
-          key={customer.id}
-          style={{
-            background: "#fff",
-            marginBottom: 15,
-            padding: 15,
-            borderRadius: 10,
-          }}
-        >
-          <h3>{customer.name}</h3>
-
-          <p>{customer.package}</p>
-
-          <strong>${customer.price}/month</strong>
-        </div>
-      ))}
-
-    </div>
+      <CustomerDialog
+        open={open}
+        setOpen={setOpen}
+        customer={customer}
+        setCustomer={setCustomer}
+        addCustomer={addCustomer}
+      />
+    </Box>
   );
 }
