@@ -15,7 +15,7 @@ import SettingsIcon from "@mui/icons-material/Settings";
 
 const drawerWidth = 240;
 
-export default function Sidebar({ selected, setSelected }) {
+export default function Sidebar() {
   const items = [
     { text: "Dashboard", icon: <DashboardIcon /> },
     { text: "Customers", icon: <PeopleIcon /> },
@@ -29,6 +29,7 @@ export default function Sidebar({ selected, setSelected }) {
       variant="permanent"
       sx={{
         width: drawerWidth,
+        flexShrink: 0,
         "& .MuiDrawer-paper": {
           width: drawerWidth,
           boxSizing: "border-box",
@@ -39,13 +40,8 @@ export default function Sidebar({ selected, setSelected }) {
 
       <List>
         {items.map((item) => (
-          <ListItemButton
-            key={item.text}
-            selected={selected === item.text}
-            onClick={() => setSelected(item.text)}
-          >
+          <ListItemButton key={item.text}>
             <ListItemIcon>{item.icon}</ListItemIcon>
-
             <ListItemText primary={item.text} />
           </ListItemButton>
         ))}
