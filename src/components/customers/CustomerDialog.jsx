@@ -2,48 +2,40 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions,
-  Button,
 } from "@mui/material";
 
 import CustomerForm from "./CustomerForm";
 
 export default function CustomerDialog({
   open,
-  setOpen,
+  onClose,
+  onAdded,
   customer,
-  setCustomer,
-  addCustomer,
+  mode = "add",
 }) {
   return (
     <Dialog
       open={open}
-      onClose={() => setOpen(false)}
-      maxWidth="sm"
+      onClose={onClose}
+      maxWidth="md"
       fullWidth
     >
-      <DialogTitle>Add Customer</DialogTitle>
+      <DialogTitle>
+        {mode === "edit"
+          ? "Edit Relief Club Member"
+          : "Add Relief Club Member"}
+      </DialogTitle>
 
       <DialogContent>
         <CustomerForm
           customer={customer}
-          setCustomer={setCustomer}
+          mode={mode}
+          onAdded={(savedCustomer) => {
+            onAdded(savedCustomer);
+            onClose();
+          }}
         />
       </DialogContent>
-
-      <DialogActions>
-        <Button onClick={() => setOpen(false)}>
-          Cancel
-        </Button>
-
-        <Button
-          variant="contained"
-          color="success"
-          onClick={addCustomer}
-        >
-          Save Customer
-        </Button>
-      </DialogActions>
     </Dialog>
   );
 }

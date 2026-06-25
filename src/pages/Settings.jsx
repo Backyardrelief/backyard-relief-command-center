@@ -1,3 +1,8 @@
-export default function Dashboard() {
-  return <h1>Dashboard</h1>;
+export default function Settings() {
+  return (
+    <div>
+      <h1>Settings</h1>
+      <p>Backyard Relief settings.</p>
+    </div>
+  );
 }

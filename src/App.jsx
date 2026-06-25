@@ -1,26 +1,66 @@
-import CustomerTable from "./components/customers/CustomerTable.jsx";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
+
 import DashboardLayout from "./layout/DashboardLayout";
 
+import Dashboard from "./pages/Dashboard";
+import CustomersPage from "./pages/CustomersPage";
+import Schedule from "./pages/Schedule";
+import RoutesPage from "./pages/Routes";
+import Billing from "./pages/Billing";
+import Settings from "./pages/Settings";
+import Map from "./pages/Map";
+
 export default function App() {
-  const customers = [
-    { id: 1, firstName: "John", lastName: "Smith", city: "Denver" },
-    { id: 2, firstName: "Sarah", lastName: "Johnson", city: "Aurora" },
-  ];
-
   return (
-    <DashboardLayout>
-      <h1
-        style={{
-          marginTop: 0,
-          marginBottom: 20,
-          fontSize: "32px",
-          color: "#1f2937",
-        }}
-      >
-        Backyard Relief CRM
-      </h1>
+    <BrowserRouter>
+      <DashboardLayout>
+        <Routes>
+          <Route
+            path="/"
+            element={<Dashboard />}
+          />
 
-      <CustomerTable customers={customers} />
-    </DashboardLayout>
+          <Route
+            path="/customers"
+            element={<CustomersPage />}
+          />
+
+          <Route
+            path="/schedule"
+            element={<Schedule />}
+          />
+
+          <Route
+            path="/routes"
+            element={<RoutesPage />}
+          />
+
+          <Route
+            path="/map"
+            element={<Map />}
+          />
+
+          <Route
+            path="/billing"
+            element={<Billing />}
+          />
+
+          <Route
+            path="/settings"
+            element={<Settings />}
+          />
+
+          <Route
+            path="*"
+            element={<Navigate to="/" replace />}
+          />
+        </Routes>
+      </DashboardLayout>
+    </BrowserRouter>
   );
 }
