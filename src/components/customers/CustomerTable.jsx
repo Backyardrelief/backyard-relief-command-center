@@ -1,109 +1,333 @@
-import { DataGrid } from "@mui/x-data-grid";
+import { useEffect, useState } from "react";
+import { supabase } from "../../lib/supabase";
+
 import {
-  Paper,
-  IconButton,
+  Box,
+  Button,
   Stack,
+  Chip,
+  IconButton,
+  Drawer,
+  Typography,
+  Divider,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from "@mui/material";
+
+import { DataGrid } from "@mui/x-data-grid";
 
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 
-export default function CustomerTable({
-  customers,
-  onDelete,
-  onEdit,
-  onView,
-}) {
+import CustomerDialog from "./CustomerDialog";
+
+export default function CustomerTable() {
+  const [customers, setCustomers] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const [open, setOpen] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+
+  const [selectedViewCustomer, setSelectedViewCustomer] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
+  // -------------------------
+  // LOAD CUSTOMERS
+  // -------------------------
+  useEffect(() => {
+    loadCustomers();
+  }, []);
+
+  const loadCustomers = async () => {
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from("customers")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Supabase fetch error:", error);
+      setLoading(false);
+      return;
+    }
+
+    setCustomers(data);
+    setLoading(false);
+  };
+
+  // -------------------------
+  // OPEN ADD
+  // -------------------------
+  const handleOpenAdd = () => {
+    setSelectedCustomer(null);
+    setOpen(true);
+  };
+
+  // -------------------------
+  // OPEN EDIT
+  // -------------------------
+  const handleEdit = (customer) => {
+    setSelectedCustomer(customer);
+    setOpen(true);
+  };
+
+  // -------------------------
+  // SAVE (CREATE / UPDATE)
+  // -------------------------
+  const handleSave = async (data) => {
+    const payload = {
+      first_name: data.name?.split(" ")[0] || "",
+      last_name: data.name?.split(" ").slice(1).join(" ") || "",
+      phone: data.phone,
+      email: data.email,
+      address: data.address,
+      service_plan: data.plan || "Relief Plus",
+      status: data.status || "active",
+      service_day: data.service_day || "Monday"
+    };
+
+    // -------------------------
+    // UPDATE
+    // -------------------------
+    if (selectedCustomer) {
+      const { data: updated, error } = await supabase
+        .from("customers")
+        .update(payload)
+        .eq("id", selectedCustomer.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Update error:", error);
+        return;
+      }
+
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === selectedCustomer.id ? updated : c
+        )
+      );
+    }
+
+    // -------------------------
+    // CREATE
+    // -------------------------
+    else {
+      const { data: inserted, error } = await supabase
+        .from("customers")
+        .insert([payload])
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Create error:", error);
+        return;
+      }
+
+      setCustomers((prev) => [inserted, ...prev]);
+    }
+
+    // -------------------------
+    // CLEANUP
+    // -------------------------
+    setSelectedCustomer(null);
+    setOpen(false);
+  };
+
+  // -------------------------
+  // DELETE
+  // -------------------------
+  const handleDeleteConfirmed = async () => {
+    if (!deleteTarget) return;
+
+    const { error } = await supabase
+      .from("customers")
+      .delete()
+      .eq("id", deleteTarget.id);
+
+    if (error) {
+      console.error("Delete error:", error);
+      return;
+    }
+
+    setCustomers((prev) =>
+      prev.filter((c) => c.id !== deleteTarget.id)
+    );
+
+    setDeleteTarget(null);
+  };
+
+  // -------------------------
+  // COLUMNS
+  // -------------------------
   const columns = [
     {
-      field: "customer",
-      headerName: "Customer",
-      flex: 1.5,
-      renderCell: (params) => (
-        <span
-          style={{
-            cursor: "pointer",
-            fontWeight: 600,
-          }}
-          onClick={() => onView(params.row)}
-        >
-          {params.row.first_name}{" "}
-          {params.row.last_name}
-        </span>
-      ),
+      field: "name",
+      headerName: "Name",
+      flex: 1,
+      minWidth: 150
+    },
+    {
+      field: "email",
+      headerName: "Email",
+      flex: 1,
+      minWidth: 180
     },
     {
       field: "phone",
       headerName: "Phone",
+      flex: 1
+    },
+    {
+      field: "address",
+      headerName: "Address",
+      flex: 1
+    },
+    {
+      field: "plan",
+      headerName: "Plan",
       flex: 1,
-    },
-    {
-      field: "city",
-      headerName: "City",
-      flex: 1,
-    },
-    {
-      field: "dogs",
-      headerName: "Dogs",
-      width: 90,
-    },
-    {
-      field: "service_plan",
-      headerName: "Membership",
-      flex: 1,
-    },
-    {
-      field: "service_frequency",
-      headerName: "Frequency",
-      width: 120,
+      renderCell: (params) => (
+        <Chip label={params.value} size="small" />
+      )
     },
     {
       field: "service_day",
-      headerName: "Day",
-      width: 120,
+      headerName: "Service Day",
+      flex: 1,
+      renderCell: (params) => (
+        <Chip label={params.value} size="small" />
+      )
+    },
+    {
+      field: "status",
+      headerName: "Status",
+      flex: 1,
+      renderCell: (params) => (
+        <Chip
+          label={params.value}
+          color={params.value === "active" ? "success" : "default"}
+          size="small"
+        />
+      )
     },
     {
       field: "actions",
       headerName: "Actions",
-      width: 130,
+      width: 120,
       sortable: false,
       renderCell: (params) => (
-        <Stack direction="row">
-          <IconButton
-            color="primary"
-            onClick={() => onEdit(params.row)}
-          >
-            <EditIcon />
+        <Stack direction="row" spacing={1}>
+          <IconButton onClick={() => handleEdit(params.row)}>
+            <EditIcon fontSize="small" />
           </IconButton>
 
-          <IconButton
-            color="error"
-            onClick={() =>
-              onDelete(params.row.id)
-            }
-          >
-            <DeleteIcon />
+          <IconButton onClick={() => setDeleteTarget(params.row)}>
+            <DeleteIcon fontSize="small" />
           </IconButton>
         </Stack>
-      ),
-    },
+      )
+    }
   ];
 
   return (
-    <Paper sx={{ p: 2, borderRadius: 3 }}>
-      <div
-        style={{
-          height: 650,
-          width: "100%",
-        }}
+    <Box>
+      {/* HEADER */}
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        mb={2}
       >
+        <h2>Customers</h2>
+
+        <Button variant="contained" onClick={handleOpenAdd}>
+          Add Customer
+        </Button>
+      </Stack>
+
+      {/* TABLE */}
+      <Box sx={{ height: 500, width: "100%" }}>
         <DataGrid
           rows={customers}
           columns={columns}
-          getRowId={(row) => row.id}
-          pageSizeOptions={[10, 25, 50]}
+          loading={loading}
+          pageSizeOptions={[5, 10]}
+          onRowClick={(params) => setSelectedViewCustomer(params.row)}
+          initialState={{
+            pagination: {
+              paginationModel: { pageSize: 5, page: 0 }
+            }
+          }}
         />
-      </div>
-    </Paper>
+      </Box>
+
+      {/* ADD / EDIT DIALOG */}
+      <CustomerDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        initialData={selectedCustomer}
+        onSave={handleSave}
+      />
+
+      {/* CUSTOMER DRAWER */}
+      <Drawer
+        anchor="right"
+        open={!!selectedViewCustomer}
+        onClose={() => setSelectedViewCustomer(null)}
+      >
+        <Box sx={{ width: 320, p: 2 }}>
+          {selectedViewCustomer && (
+            <>
+              <Typography variant="h6">
+                {selectedViewCustomer.name}
+              </Typography>
+
+              <Divider sx={{ my: 2 }} />
+
+              <Typography>Email: {selectedViewCustomer.email}</Typography>
+              <Typography>Phone: {selectedViewCustomer.phone}</Typography>
+              <Typography>Address: {selectedViewCustomer.address}</Typography>
+
+              <Divider sx={{ my: 2 }} />
+
+              <Typography>Plan: {selectedViewCustomer.plan}</Typography>
+              <Typography>Service Day: {selectedViewCustomer.service_day}</Typography>
+              <Typography>Status: {selectedViewCustomer.status}</Typography>
+            </>
+          )}
+        </Box>
+      </Drawer>
+
+      {/* DELETE CONFIRMATION */}
+      <Dialog
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+      >
+        <DialogTitle>Delete Customer?</DialogTitle>
+
+        <DialogContent>
+          Are you sure you want to delete{" "}
+          <strong>{deleteTarget?.name}</strong>?
+        </DialogContent>
+
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)}>
+            Cancel
+          </Button>
+
+          <Button
+            color="error"
+            variant="contained"
+            onClick={handleDeleteConfirmed}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
   );
 }

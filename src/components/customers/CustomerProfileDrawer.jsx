@@ -5,7 +5,7 @@ import {
   Divider,
 } from "@mui/material";
 
-export default function CustomerDetailsDrawer({
+export default function CustomerProfileDrawer() {
   open,
   onClose,
   customer,

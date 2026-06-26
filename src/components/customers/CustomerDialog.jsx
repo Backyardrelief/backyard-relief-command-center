@@ -1,7 +1,7 @@
 import {
   Dialog,
   DialogTitle,
-  DialogContent,
+  DialogContent
 } from "@mui/material";
 
 import CustomerForm from "./CustomerForm";
@@ -9,31 +9,25 @@ import CustomerForm from "./CustomerForm";
 export default function CustomerDialog({
   open,
   onClose,
-  onAdded,
-  customer,
-  mode = "add",
+  initialData,
+  onSave
 }) {
+  const handleSubmit = async (data) => {
+    await onSave(data);
+    onClose();
+  };
+
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      maxWidth="md"
-      fullWidth
-    >
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>
-        {mode === "edit"
-          ? "Edit Relief Club Member"
-          : "Add Relief Club Member"}
+        {initialData ? "Edit Customer" : "Add Customer"}
       </DialogTitle>
 
       <DialogContent>
         <CustomerForm
-          customer={customer}
-          mode={mode}
-          onAdded={(savedCustomer) => {
-            onAdded(savedCustomer);
-            onClose();
-          }}
+          initialData={initialData}
+          onSubmit={handleSubmit}
+          onCancel={onClose}
         />
       </DialogContent>
     </Dialog>
