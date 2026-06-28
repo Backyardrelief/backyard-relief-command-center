@@ -10,9 +10,18 @@ import {
   TextField,
   Alert,
   CircularProgress,
+  MenuItem, 
 } from "@mui/material";
 
 import PlacesAutocomplete from "../../maps/components/PlacesAutocomplete";
+
+const SERVICE_PLANS = [
+  "Basic Relief",
+  "Standard Relief",
+  "Relief Plus",
+  "Relief Premium",
+  "Relief Elite",
+];
 
 const defaultForm = {
   first_name: "",
@@ -20,6 +29,7 @@ const defaultForm = {
 
   phone: "",
   email: "",
+  service_plan: "",
 
   address: "",
   city: "",
@@ -70,6 +80,8 @@ useEffect(() => {
 
       phone: data.phone || "",
       email: data.email || "",
+
+      service_plan: data.service_plan || "",
 
       address: data.address || "",
       city: data.city || "",
@@ -143,6 +155,8 @@ useEffect(() => {
     try {
       await onSave({
   ...form,
+
+  service_plan: form.service_plan,
 
   first_name: (form.first_name || "").trim(),
   last_name: (form.last_name || "").trim(),
@@ -233,6 +247,24 @@ useEffect(() => {
             fullWidth
           />
         </Grid>
+
+        {/* Service Plan */}
+<Grid item xs={12} sm={6}>
+  <TextField
+    select
+    label="Service Plan"
+    name="service_plan"
+    value={form.service_plan || ""}
+    onChange={handleChange}
+    fullWidth
+  >
+    {SERVICE_PLANS.map((plan) => (
+      <MenuItem key={plan} value={plan}>
+        {plan}
+      </MenuItem>
+    ))}
+  </TextField>
+</Grid>
 
         {/* Address Autocomplete */}
         <Grid item xs={12}>

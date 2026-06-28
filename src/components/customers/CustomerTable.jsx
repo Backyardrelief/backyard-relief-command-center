@@ -23,6 +23,8 @@ import DeleteIcon from "@mui/icons-material/Delete";
 
 import CustomerDialog from "./CustomerDialog";
 
+import { eventBus } from "../../lib/eventBus";
+
 // -------------------------
 // NORMALIZE CUSTOMER
 // -------------------------
@@ -91,6 +93,9 @@ export default function CustomerTable() {
       last_name: (form.last_name || "").trim(),
       phone: (form.phone || "").trim(),
       email: (form.email || "").trim(),
+
+      service_plan: form.service_plan,
+
       address: (form.address || "").trim(),
       city: (form.city || "").trim(),
       state: (form.state || "").trim(),
@@ -124,6 +129,9 @@ export default function CustomerTable() {
           c.id === selectedCustomer.id ? normalizeCustomer(updated) : c
         )
       );
+
+      eventBus.emit("customersUpdated");
+
     }
 
     // CREATE
@@ -143,6 +151,9 @@ export default function CustomerTable() {
         normalizeCustomer(inserted),
         ...prev,
       ]);
+
+      eventBus.emit("customersUpdated");
+      
     }
 
     setSelectedCustomer(null);

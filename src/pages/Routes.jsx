@@ -5,13 +5,13 @@ import {
   Grid,
   Paper,
   Divider,
-  Chip,
   Button,
 } from "@mui/material";
 
 import { supabase } from "../lib/supabase";
-import { DndContext, closestCenter } from "@dnd-kit/core";
+import { eventBus } from "../lib/eventBus";
 
+import { DndContext, closestCenter } from "@dnd-kit/core";
 import {
   SortableContext,
   verticalListSortingStrategy,
@@ -19,11 +19,13 @@ import {
 } from "@dnd-kit/sortable";
 
 import SortableItem from "../components/dispatch/SortableItem";
+
+// -------------------------
 const PLAN_VALUES = {
   "Basic Relief": 60,
   "Standard Relief": 80,
-  "Relief Plus": 96,
-  "Relief Premium": 110,
+  "Relief Plus": 100,
+  "Relief Premium": 115,
   "Relief Elite": 144,
 };
 
@@ -31,21 +33,21 @@ const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
 export default function Routes() {
   const [customers, setCustomers] = useState([]);
-const [routes, setRoutes] = useState({});
-const [manualRoutes, setManualRoutes] = useState({});
-const [loadingDays, setLoadingDays] = useState({});
 
-  useEffect(() => {
-    fetchCustomers();
-  }, []);
+  // DB source of truth
+  const [routes, setRoutes] = useState({});
+  const [lockedDays, setLockedDays] = useState({});
 
+  const [loadingDays, setLoadingDays] = useState({});
+
+  // -------------------------
   const fetchCustomers = async () => {
     const { data, error } = await supabase
       .from("customers")
       .select("*");
 
     if (error) {
-      console.error("Route load error:", error);
+      console.error(error);
       return;
     }
 
@@ -53,85 +55,158 @@ const [loadingDays, setLoadingDays] = useState({});
   };
 
   // -------------------------
-  // CALL EDGE FUNCTION (STEP 11 ENGINE)
+  // LOAD ROUTES FROM DB
+  // -------------------------
+  const loadRoutes = async () => {
+    const { data, error } = await supabase
+      .from("routes")
+      .select("*");
+
+    if (error) {
+      console.error("Route load error:", error);
+      return;
+    }
+
+    const rMap = {};
+    const lMap = {};
+
+    (data || []).forEach((r) => {
+      rMap[r.day] = r.route || [];
+      lMap[r.day] = r.locked || false;
+    });
+
+    setRoutes(rMap);
+    setLockedDays(lMap);
+  };
+
+  // -------------------------
+  useEffect(() => {
+    fetchCustomers();
+    loadRoutes();
+  }, []);
+
+  // -------------------------
+  useEffect(() => {
+    const handleUpdate = async (changedCustomer) => {
+      await fetchCustomers();
+
+      if (!changedCustomer?.service_day) return;
+
+      const day = changedCustomer.service_day;
+
+      if (lockedDays[day]) return;
+
+      setTimeout(() => {
+        const dayCustomers = customers.filter(
+          (c) => c.service_day === day
+        );
+
+        if (dayCustomers.length) {
+          generateRoute(dayCustomers, day);
+        }
+      }, 200);
+    };
+
+    eventBus.on("customersUpdated", handleUpdate);
+
+    return () => {
+      eventBus.off("customersUpdated", handleUpdate);
+    };
+  }, [customers, lockedDays]);
+
+    // -------------------------
+  // SAVE TO SUPABASE
+  // -------------------------
+  const saveRoute = async (day, route, locked) => {
+    const { error } = await supabase
+      .from("routes")
+      .upsert({
+        day,
+        route,
+        locked,
+        updated_at: new Date(),
+      }, { onConflict: "day" });
+
+    if (error) console.error(error);
+  };
+
   // -------------------------
   const generateRoute = async (dayCustomers, day) => {
     try {
-      setLoadingDays((prev) => ({ ...prev, [day]: true }));
+      setLoadingDays((p) => ({ ...p, [day]: true }));
 
       const res = await fetch(
         "https://ugtqsmrgwnyxzuwrolcz.functions.supabase.co/optimize-route",
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            customers: dayCustomers,
-          }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ customers: dayCustomers }),
         }
       );
 
       const data = await res.json();
 
-      console.table(
-  data.route.map((customer, index) => ({
-    Position: index + 1,
-    RouteOrder: customer.route_order,
-    Name: `${customer.first_name} ${customer.last_name}`,
-    Address: customer.address,
-  }))
-);
-
       setRoutes((prev) => ({
         ...prev,
         [day]: data.route,
       }));
+
+      await saveRoute(day, data.route, lockedDays[day] || false);
+
     } catch (err) {
-      console.error("Route generation error:", err);
+      console.error(err);
     } finally {
-      setLoadingDays((prev) => ({ ...prev, [day]: false }));
+      setLoadingDays((p) => ({ ...p, [day]: false }));
     }
   };
-// -------------------------
-// DRAG & DROP HANDLER
-// -------------------------
-const handleDragEnd = (day, event) => {
-  const { active, over } = event;
 
-  if (!over || active.id === over.id) return;
+  // -------------------------
+  const toggleLock = async (day) => {
+    const newVal = !lockedDays[day];
 
-  const currentRoute =
-    manualRoutes[day] ||
-    routes[day] ||
-    customers.filter(
-      (customer) => customer.service_day === day
-    );
+    setLockedDays((prev) => ({
+      ...prev,
+      [day]: newVal,
+    }));
 
-  const oldIndex = currentRoute.findIndex(
-    (customer) => customer.id === active.id
-  );
+    await saveRoute(day, routes[day] || [], newVal);
+  };
 
-  const newIndex = currentRoute.findIndex(
-    (customer) => customer.id === over.id
-  );
+  // -------------------------
+  const handleDragEnd = async (day, event) => {
+    const { active, over } = event;
 
-  if (oldIndex === -1 || newIndex === -1) return;
+    if (!over || active.id === over.id) return;
 
-  const updatedRoute = arrayMove(
-    currentRoute,
-    oldIndex,
-    newIndex
-  ).map((customer, index) => ({
-    ...customer,
-    route_order: index + 1,
-  }));
+    const currentRoute =
+      routes[day] ||
+      customers.filter((c) => c.service_day === day);
 
-  setManualRoutes((prev) => ({
-    ...prev,
-    [day]: updatedRoute,
-  }));
-};
+    const oldIndex = currentRoute.findIndex(c => c.id === active.id);
+    const newIndex = currentRoute.findIndex(c => c.id === over.id);
+
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const updated = arrayMove(
+      currentRoute,
+      oldIndex,
+      newIndex
+    ).map((c, i) => ({ ...c, route_order: i + 1 }));
+
+    setRoutes((prev) => ({
+      ...prev,
+      [day]: updated,
+    }));
+
+    setLockedDays((prev) => ({
+      ...prev,
+      [day]: true,
+    }));
+
+    await saveRoute(day, updated, true);
+  };
+
+  // -------------------------
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" fontWeight="bold" sx={{ mb: 3 }}>
@@ -145,23 +220,18 @@ const handleDragEnd = (day, event) => {
           );
 
           const activeRoute =
-  manualRoutes[day] ||
-  routes[day] ||
-  dayCustomers;
+            routes[day] ||
+            dayCustomers;
 
           const revenue = activeRoute.reduce(
-            (total, customer) =>
-              total + (PLAN_VALUES[customer.service_plan] || 0),
+            (t, c) => t + (PLAN_VALUES[c.service_plan] || 0),
             0
           );
 
           return (
             <Grid item xs={12} md={6} lg={4} key={day}>
               <Paper sx={{ p: 3, borderRadius: 3 }}>
-                {/* HEADER */}
-                <Typography variant="h6" fontWeight="bold">
-                  {day}
-                </Typography>
+                <Typography variant="h6">{day}</Typography>
 
                 <Typography color="text.secondary">
                   {activeRoute.length} Stops
@@ -171,45 +241,47 @@ const handleDragEnd = (day, event) => {
                   ${revenue}/month
                 </Typography>
 
-                {/* GENERATE ROUTE BUTTON */}
                 <Button
                   variant="contained"
                   size="small"
-                  sx={{ mb: 2 }}
-                  disabled={loadingDays[day]}
+                  disabled={loadingDays[day] || lockedDays[day]}
                   onClick={() => generateRoute(dayCustomers, day)}
                 >
                   {loadingDays[day]
-                    ? "Generating Route..."
+                    ? "Generating..."
                     : "Generate Route"}
                 </Button>
 
-                <Divider sx={{ mb: 2 }} />
+                <Button
+                  size="small"
+                  variant={lockedDays[day] ? "contained" : "outlined"}
+                  color={lockedDays[day] ? "error" : "primary"}
+                  sx={{ ml: 1 }}
+                  onClick={() => toggleLock(day)}
+                >
+                  {lockedDays[day] ? "Locked" : "Unlocked"}
+                </Button>
 
-                {/* DRAG & DROP ROUTE */}
-<DndContext
-  collisionDetection={closestCenter}
-  onDragEnd={(event) => handleDragEnd(day, event)}
->
-  <SortableContext
-    items={activeRoute.map((customer) => customer.id)}
-    strategy={verticalListSortingStrategy}
-  >
-    {activeRoute.map((customer) => (
-      <SortableItem
-        key={customer.id}
-        id={customer.id}
-        customer={customer}
-      />
-    ))}
-  </SortableContext>
-</DndContext>
+                <Divider sx={{ my: 2 }} />
 
-                {activeRoute.length === 0 && (
-                  <Typography color="text.secondary">
-                    No customers assigned.
-                  </Typography>
-                )}
+                <DndContext
+                  collisionDetection={closestCenter}
+                  onDragEnd={(e) => handleDragEnd(day, e)}
+                >
+                  <SortableContext
+                    items={activeRoute.map(c => c.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    {activeRoute.map((customer) => (
+                      <SortableItem
+                        key={customer.id}
+                        id={customer.id}
+                        customer={customer}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
+
               </Paper>
             </Grid>
           );
