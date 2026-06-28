@@ -13,7 +13,7 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
 } from "@mui/material";
 
 import { DataGrid } from "@mui/x-data-grid";
@@ -22,6 +22,14 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 
 import CustomerDialog from "./CustomerDialog";
+
+// -------------------------
+// NORMALIZE CUSTOMER
+// -------------------------
+const normalizeCustomer = (customer) => ({
+  ...customer,
+  name: `${customer.first_name ?? ""} ${customer.last_name ?? ""}`.trim(),
+});
 
 export default function CustomerTable() {
   const [customers, setCustomers] = useState([]);
@@ -54,7 +62,7 @@ export default function CustomerTable() {
       return;
     }
 
-    setCustomers(data);
+    setCustomers((data || []).map(normalizeCustomer));
     setLoading(false);
   };
 
@@ -77,21 +85,27 @@ export default function CustomerTable() {
   // -------------------------
   // SAVE (CREATE / UPDATE)
   // -------------------------
-  const handleSave = async (data) => {
+  const handleSave = async (form) => {
     const payload = {
-      first_name: data.name?.split(" ")[0] || "",
-      last_name: data.name?.split(" ").slice(1).join(" ") || "",
-      phone: data.phone,
-      email: data.email,
-      address: data.address,
-      service_plan: data.plan || "Relief Plus",
-      status: data.status || "active",
-      service_day: data.service_day || "Monday"
+      first_name: (form.first_name || "").trim(),
+      last_name: (form.last_name || "").trim(),
+      phone: (form.phone || "").trim(),
+      email: (form.email || "").trim(),
+      address: (form.address || "").trim(),
+      city: (form.city || "").trim(),
+      state: (form.state || "").trim(),
+      zip: (form.zip || "").trim(),
+
+      lat: form.lat == null ? null : Number(form.lat),
+      lng: form.lng == null ? null : Number(form.lng),
+
+      dog_names: (form.dog_names || "").trim(),
+      gate_code: (form.gate_code || "").trim(),
+      access_instructions: (form.access_instructions || "").trim(),
+      notes: (form.notes || "").trim(),
     };
 
-    // -------------------------
     // UPDATE
-    // -------------------------
     if (selectedCustomer) {
       const { data: updated, error } = await supabase
         .from("customers")
@@ -107,14 +121,12 @@ export default function CustomerTable() {
 
       setCustomers((prev) =>
         prev.map((c) =>
-          c.id === selectedCustomer.id ? updated : c
+          c.id === selectedCustomer.id ? normalizeCustomer(updated) : c
         )
       );
     }
 
-    // -------------------------
     // CREATE
-    // -------------------------
     else {
       const { data: inserted, error } = await supabase
         .from("customers")
@@ -127,12 +139,12 @@ export default function CustomerTable() {
         return;
       }
 
-      setCustomers((prev) => [inserted, ...prev]);
+      setCustomers((prev) => [
+        normalizeCustomer(inserted),
+        ...prev,
+      ]);
     }
 
-    // -------------------------
-    // CLEANUP
-    // -------------------------
     setSelectedCustomer(null);
     setOpen(false);
   };
@@ -164,56 +176,11 @@ export default function CustomerTable() {
   // COLUMNS
   // -------------------------
   const columns = [
-    {
-      field: "name",
-      headerName: "Name",
-      flex: 1,
-      minWidth: 150
-    },
-    {
-      field: "email",
-      headerName: "Email",
-      flex: 1,
-      minWidth: 180
-    },
-    {
-      field: "phone",
-      headerName: "Phone",
-      flex: 1
-    },
-    {
-      field: "address",
-      headerName: "Address",
-      flex: 1
-    },
-    {
-      field: "plan",
-      headerName: "Plan",
-      flex: 1,
-      renderCell: (params) => (
-        <Chip label={params.value} size="small" />
-      )
-    },
-    {
-      field: "service_day",
-      headerName: "Service Day",
-      flex: 1,
-      renderCell: (params) => (
-        <Chip label={params.value} size="small" />
-      )
-    },
-    {
-      field: "status",
-      headerName: "Status",
-      flex: 1,
-      renderCell: (params) => (
-        <Chip
-          label={params.value}
-          color={params.value === "active" ? "success" : "default"}
-          size="small"
-        />
-      )
-    },
+    { field: "name", headerName: "Name", flex: 1, minWidth: 150 },
+    { field: "email", headerName: "Email", flex: 1, minWidth: 180 },
+    { field: "phone", headerName: "Phone", flex: 1 },
+    { field: "address", headerName: "Address", flex: 1 },
+
     {
       field: "actions",
       headerName: "Actions",
@@ -229,13 +196,12 @@ export default function CustomerTable() {
             <DeleteIcon fontSize="small" />
           </IconButton>
         </Stack>
-      )
-    }
+      ),
+    },
   ];
 
   return (
     <Box>
-      {/* HEADER */}
       <Stack
         direction="row"
         justifyContent="space-between"
@@ -249,23 +215,16 @@ export default function CustomerTable() {
         </Button>
       </Stack>
 
-      {/* TABLE */}
       <Box sx={{ height: 500, width: "100%" }}>
         <DataGrid
           rows={customers}
           columns={columns}
           loading={loading}
           pageSizeOptions={[5, 10]}
-          onRowClick={(params) => setSelectedViewCustomer(params.row)}
-          initialState={{
-            pagination: {
-              paginationModel: { pageSize: 5, page: 0 }
-            }
-          }}
         />
       </Box>
 
-      {/* ADD / EDIT DIALOG */}
+      {/* DIALOG */}
       <CustomerDialog
         open={open}
         onClose={() => setOpen(false)}
@@ -273,40 +232,8 @@ export default function CustomerTable() {
         onSave={handleSave}
       />
 
-      {/* CUSTOMER DRAWER */}
-      <Drawer
-        anchor="right"
-        open={!!selectedViewCustomer}
-        onClose={() => setSelectedViewCustomer(null)}
-      >
-        <Box sx={{ width: 320, p: 2 }}>
-          {selectedViewCustomer && (
-            <>
-              <Typography variant="h6">
-                {selectedViewCustomer.name}
-              </Typography>
-
-              <Divider sx={{ my: 2 }} />
-
-              <Typography>Email: {selectedViewCustomer.email}</Typography>
-              <Typography>Phone: {selectedViewCustomer.phone}</Typography>
-              <Typography>Address: {selectedViewCustomer.address}</Typography>
-
-              <Divider sx={{ my: 2 }} />
-
-              <Typography>Plan: {selectedViewCustomer.plan}</Typography>
-              <Typography>Service Day: {selectedViewCustomer.service_day}</Typography>
-              <Typography>Status: {selectedViewCustomer.status}</Typography>
-            </>
-          )}
-        </Box>
-      </Drawer>
-
-      {/* DELETE CONFIRMATION */}
-      <Dialog
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-      >
+      {/* DELETE */}
+      <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
         <DialogTitle>Delete Customer?</DialogTitle>
 
         <DialogContent>
@@ -315,10 +242,7 @@ export default function CustomerTable() {
         </DialogContent>
 
         <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)}>
-            Cancel
-          </Button>
-
+          <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
           <Button
             color="error"
             variant="contained"

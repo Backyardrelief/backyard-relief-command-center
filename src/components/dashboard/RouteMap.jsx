@@ -1,5 +1,5 @@
-import { GoogleMap, useLoadScript, DirectionsRenderer, Marker } from "@react-google-maps/api";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useGoogleMaps } from "../../maps/core/GoogleMapsProvider";
 
 const depot = {
   lat: 39.6433,
@@ -7,19 +7,46 @@ const depot = {
 };
 
 export default function RouteMap({ jobs }) {
-  const { isLoaded } = useLoadScript({
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_KEY,
-  });
+  const { google, loading } = useGoogleMaps();
 
-  const [directions, setDirections] = useState(null);
+  const mapRef = useRef(null);
+  const containerRef = useRef(null);
+  const directionsRendererRef = useRef(null);
 
+  const [directionsLoaded, setDirectionsLoaded] = useState(false);
+
+  // -------------------------
+  // INIT MAP
+  // -------------------------
   useEffect(() => {
-    if (!isLoaded || !jobs?.length) return;
+    if (!google || loading) return;
+    if (!containerRef.current) return;
+    if (mapRef.current) return;
+
+    mapRef.current = new google.maps.Map(containerRef.current, {
+      center: depot,
+      zoom: 12,
+    });
+
+    directionsRendererRef.current = new google.maps.DirectionsRenderer({
+      map: mapRef.current,
+    });
+  }, [google, loading]);
+
+  // -------------------------
+  // BUILD ROUTE
+  // -------------------------
+  useEffect(() => {
+    if (!google || !mapRef.current) return;
+    if (!jobs?.length) return;
 
     const directionsService = new google.maps.DirectionsService();
 
     const waypoints = jobs.map((job) => ({
-      location: { lat: job.lat, lng: job.lng },
+      location: {
+        lat: Number(job.lat),
+        lng: Number(job.lng),
+      },
       stopover: true,
     }));
 
@@ -32,22 +59,24 @@ export default function RouteMap({ jobs }) {
         optimizeWaypoints: true,
       },
       (result, status) => {
-        if (status === "OK") {
-          setDirections(result);
+        if (status === "OK" && directionsRendererRef.current) {
+          directionsRendererRef.current.setDirections(result);
+          setDirectionsLoaded(true);
+        } else {
+          console.error("Directions failed:", status);
         }
       }
     );
-  }, [isLoaded, jobs]);
+  }, [google, jobs]);
 
-  if (!isLoaded) return <div>Loading Map...</div>;
+  if (loading || !google) {
+    return <div>Loading Map...</div>;
+  }
 
   return (
-    <GoogleMap mapContainerStyle={{ width: "100%", height: "400px" }} center={depot} zoom={12}>
-      {/* DEPOT */}
-      <Marker position={depot} label="DEPOT" />
-
-      {/* ROUTE */}
-      {directions && <DirectionsRenderer directions={directions} />}
-    </GoogleMap>
+    <div
+      ref={containerRef}
+      style={{ width: "100%", height: "400px" }}
+    />
   );
 }

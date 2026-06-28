@@ -6,8 +6,9 @@ export default function DashboardLayout({ children }) {
     <div
       style={{
         display: "flex",
-        minHeight: "100vh",
+        height: "100vh",
         background: "#f5f7fa",
+        overflow: "hidden",
       }}
     >
       <Sidebar />
@@ -17,6 +18,7 @@ export default function DashboardLayout({ children }) {
           flex: 1,
           display: "flex",
           flexDirection: "column",
+          minWidth: 0,
         }}
       >
         <Topbar />
@@ -25,6 +27,9 @@ export default function DashboardLayout({ children }) {
           style={{
             flex: 1,
             padding: "30px",
+            minWidth: 0,
+            overflow: "auto",
+            boxSizing: "border-box",
           }}
         >
           {children}
