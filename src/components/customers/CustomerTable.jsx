@@ -5,11 +5,7 @@ import {
   Box,
   Button,
   Stack,
-  Chip,
   IconButton,
-  Drawer,
-  Typography,
-  Divider,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -22,11 +18,8 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 
 import CustomerDialog from "./CustomerDialog";
-
 import { eventBus } from "../../lib/eventBus";
 
-// -------------------------
-// NORMALIZE CUSTOMER
 // -------------------------
 const normalizeCustomer = (customer) => ({
   ...customer,
@@ -40,11 +33,8 @@ export default function CustomerTable() {
   const [open, setOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
 
-  const [selectedViewCustomer, setSelectedViewCustomer] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  // -------------------------
-  // LOAD CUSTOMERS
   // -------------------------
   useEffect(() => {
     loadCustomers();
@@ -69,23 +59,16 @@ export default function CustomerTable() {
   };
 
   // -------------------------
-  // OPEN ADD
-  // -------------------------
   const handleOpenAdd = () => {
     setSelectedCustomer(null);
     setOpen(true);
   };
 
-  // -------------------------
-  // OPEN EDIT
-  // -------------------------
   const handleEdit = (customer) => {
     setSelectedCustomer(customer);
     setOpen(true);
   };
 
-  // -------------------------
-  // SAVE (CREATE / UPDATE)
   // -------------------------
   const handleSave = async (form) => {
     const payload = {
@@ -93,7 +76,6 @@ export default function CustomerTable() {
       last_name: (form.last_name || "").trim(),
       phone: (form.phone || "").trim(),
       email: (form.email || "").trim(),
-
       service_plan: form.service_plan,
 
       address: (form.address || "").trim(),
@@ -110,7 +92,9 @@ export default function CustomerTable() {
       notes: (form.notes || "").trim(),
     };
 
+    // -------------------------
     // UPDATE
+    // -------------------------
     if (selectedCustomer) {
       const { data: updated, error } = await supabase
         .from("customers")
@@ -130,11 +114,12 @@ export default function CustomerTable() {
         )
       );
 
-      eventBus.emit("customersUpdated");
-
+      eventBus.emit("customersUpdated", updated);
     }
 
+    // -------------------------
     // CREATE
+    // -------------------------
     else {
       const { data: inserted, error } = await supabase
         .from("customers")
@@ -152,16 +137,13 @@ export default function CustomerTable() {
         ...prev,
       ]);
 
-      eventBus.emit("customersUpdated");
-      
+      eventBus.emit("customersUpdated", inserted);
     }
 
     setSelectedCustomer(null);
     setOpen(false);
   };
 
-  // -------------------------
-  // DELETE
   // -------------------------
   const handleDeleteConfirmed = async () => {
     if (!deleteTarget) return;
@@ -181,10 +163,10 @@ export default function CustomerTable() {
     );
 
     setDeleteTarget(null);
+
+    eventBus.emit("customersUpdated");
   };
 
-  // -------------------------
-  // COLUMNS
   // -------------------------
   const columns = [
     { field: "name", headerName: "Name", flex: 1, minWidth: 150 },

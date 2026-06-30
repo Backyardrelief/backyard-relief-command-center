@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   Box,
   Typography,
@@ -6,287 +6,363 @@ import {
   Paper,
   Divider,
   Button,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "@mui/material";
 
 import { supabase } from "../lib/supabase";
-import { eventBus } from "../lib/eventBus";
 
-import { DndContext, closestCenter } from "@dnd-kit/core";
+import {
+  DndContext,
+  closestCenter,
+  DragOverlay,
+  useSensor,
+  useSensors,
+  PointerSensor,
+  useDroppable,
+} from "@dnd-kit/core";
+
 import {
   SortableContext,
   verticalListSortingStrategy,
-  arrayMove,
 } from "@dnd-kit/sortable";
 
 import SortableItem from "../components/dispatch/SortableItem";
 
 // -------------------------
-const PLAN_VALUES = {
-  "Basic Relief": 60,
-  "Standard Relief": 80,
-  "Relief Plus": 100,
-  "Relief Premium": 115,
-  "Relief Elite": 144,
-};
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
-const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+// -------------------------
+// TODAY → TOMORROW PRIORITY ENGINE
+function getTodayIndex() {
+  const jsDay = new Date().getDay(); // Sunday = 0
+  const map = { 1: 0, 2: 1, 3: 2, 4: 3, 5: 4 };
+  return map[jsDay] ?? 0;
+}
 
+function getDayPriority(day) {
+  const todayIndex = getTodayIndex();
+  const dayIndex = DAYS.indexOf(day);
+
+  if (dayIndex === -1) return 99;
+
+  return (dayIndex - todayIndex + 7) % 7;
+}
+
+// -------------------------
+function getDispatchScore(customer) {
+  const dayPriority = getDayPriority(customer.service_day);
+  const lockPenalty = customer.locked ? 0.1 : 0;
+  const routeIndex = customer.route_index ?? 0;
+
+  return dayPriority * 10000 + routeIndex + lockPenalty;
+}
+
+// -------------------------
+function DayColumn({ day, children }) {
+  const { setNodeRef, isOver } = useDroppable({ id: day });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        minHeight: 420,
+        borderRadius: 10,
+        transition: "0.15s ease",
+        border: isOver ? "2px solid #1976d2" : "1px solid transparent",
+        background: isOver ? "#f5f9ff" : "transparent",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// -------------------------
 export default function Routes() {
   const [customers, setCustomers] = useState([]);
-
-  // DB source of truth
   const [routes, setRoutes] = useState({});
-  const [lockedDays, setLockedDays] = useState({});
+  const [mode, setMode] = useState("days");
+  const [activeItem, setActiveItem] = useState(null);
 
-  const [loadingDays, setLoadingDays] = useState({});
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    })
+  );
 
-  // -------------------------
-  const fetchCustomers = async () => {
-    const { data, error } = await supabase
-      .from("customers")
-      .select("*");
-
-    if (error) {
-      console.error(error);
-      return;
-    }
-
-    setCustomers(data || []);
-  };
-
-  // -------------------------
-  // LOAD ROUTES FROM DB
-  // -------------------------
-  const loadRoutes = async () => {
-    const { data, error } = await supabase
-      .from("routes")
-      .select("*");
-
-    if (error) {
-      console.error("Route load error:", error);
-      return;
-    }
-
-    const rMap = {};
-    const lMap = {};
-
-    (data || []).forEach((r) => {
-      rMap[r.day] = r.route || [];
-      lMap[r.day] = r.locked || false;
-    });
-
-    setRoutes(rMap);
-    setLockedDays(lMap);
-  };
+  const debounceRef = useRef({});
 
   // -------------------------
   useEffect(() => {
-    fetchCustomers();
-    loadRoutes();
+    const load = async () => {
+      const { data } = await supabase.from("customers").select("*");
+      setCustomers(data || []);
+    };
+
+    load();
   }, []);
 
   // -------------------------
-  useEffect(() => {
-    const handleUpdate = async (changedCustomer) => {
-      await fetchCustomers();
+  const toggleLock = async (customer) => {
+    const updated = !customer.locked;
 
-      if (!changedCustomer?.service_day) return;
+    await supabase
+      .from("customers")
+      .update({ locked: updated })
+      .eq("id", customer.id);
 
-      const day = changedCustomer.service_day;
+    setCustomers((prev) =>
+      prev.map((c) =>
+        c.id === customer.id ? { ...c, locked: updated } : c
+      )
+    );
+  };
 
-      if (lockedDays[day]) return;
+  // -------------------------
+  const rebuildDay = async (day) => {
+    const dayCustomers = customers.filter(
+      (c) => c.service_day === day && !c.locked
+    );
 
-      setTimeout(() => {
+    const res = await fetch(
+      "https://ugtqsmrgwnyxzuwrolcz.functions.supabase.co/optimize-route",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customers: dayCustomers }),
+      }
+    );
+
+    const data = await res.json();
+
+    setRoutes((prev) => ({
+      ...prev,
+      [day]: data.route || [],
+    }));
+  };
+
+  // -------------------------
+  const scheduleOptimize = (day) => {
+    if (!day) return;
+
+    clearTimeout(debounceRef.current[day]);
+
+    debounceRef.current[day] = setTimeout(() => {
+      rebuildDay(day);
+    }, 900);
+  };
+
+  // -------------------------
+  const handleDragStart = (event) => {
+    const item = customers.find((c) => c.id === event.active.id);
+    setActiveItem(item || null);
+  };
+
+  // -------------------------
+  const handleDragEnd = async (event) => {
+    const { active, over } = event;
+
+    setActiveItem(null);
+    if (!over) return;
+
+    const customer = customers.find((c) => c.id === active.id);
+    if (!customer || customer.locked) return;
+
+    // -------------------------
+    // DAY MODE
+    // -------------------------
+    if (mode === "days") {
+      const sourceDay = customer.service_day;
+      const targetDay = over.id;
+
+      if (!DAYS.includes(targetDay)) return;
+
+      if (sourceDay !== targetDay) {
+        await supabase
+          .from("customers")
+          .update({ service_day: targetDay })
+          .eq("id", customer.id);
+
+        setCustomers((prev) =>
+          prev.map((c) =>
+            c.id === customer.id
+              ? { ...c, service_day: targetDay }
+              : c
+          )
+        );
+
+        scheduleOptimize(sourceDay);
+        scheduleOptimize(targetDay);
+      }
+    }
+
+    // -------------------------
+    // DRIVER MODE
+    // -------------------------
+    if (mode === "drivers") {
+      // IMPORTANT FIX: ALWAYS build from full dataset (prevents empty UI)
+      const base = customers.length ? customers : [];
+
+      const filtered = base.filter((c) => !c.locked);
+
+      const ordered = [...filtered, customer].sort(
+        (a, b) => getDispatchScore(a) - getDispatchScore(b)
+      );
+
+      setRoutes({
+        main_driver: ordered,
+      });
+    }
+  };
+
+  // -------------------------
+  const renderDays = () => (
+    <Grid container spacing={3}>
+      {DAYS.map((day) => {
         const dayCustomers = customers.filter(
           (c) => c.service_day === day
         );
 
-        if (dayCustomers.length) {
-          generateRoute(dayCustomers, day);
-        }
-      }, 200);
-    };
+        const activeRoute = routes[day]?.length
+          ? routes[day]
+          : dayCustomers;
 
-    eventBus.on("customersUpdated", handleUpdate);
+        return (
+          <Grid item xs={12} md={4} key={day}>
+            <DayColumn day={day}>
+              <Paper sx={{ p: 3, minHeight: 420 }}>
+                <Typography variant="h6">{day}</Typography>
 
-    return () => {
-      eventBus.off("customersUpdated", handleUpdate);
-    };
-  }, [customers, lockedDays]);
+                <Button
+                  variant="contained"
+                  size="small"
+                  sx={{ mt: 1, mb: 2 }}
+                  onClick={() => rebuildDay(day)}
+                >
+                  Optimize Route
+                </Button>
 
-    // -------------------------
-  // SAVE TO SUPABASE
-  // -------------------------
-  const saveRoute = async (day, route, locked) => {
-    const { error } = await supabase
-      .from("routes")
-      .upsert({
-        day,
-        route,
-        locked,
-        updated_at: new Date(),
-      }, { onConflict: "day" });
+                <Divider sx={{ my: 2 }} />
 
-    if (error) console.error(error);
-  };
+                <SortableContext
+                  items={dayCustomers.map((c) => c.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {dayCustomers.map((customer) => (
+                    <div key={customer.id}>
+                      <SortableItem
+                        id={customer.id}
+                        customer={customer}
+                        disabled={customer.locked}
+                      />
 
-  // -------------------------
-  const generateRoute = async (dayCustomers, day) => {
-    try {
-      setLoadingDays((p) => ({ ...p, [day]: true }));
-
-      const res = await fetch(
-        "https://ugtqsmrgwnyxzuwrolcz.functions.supabase.co/optimize-route",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ customers: dayCustomers }),
-        }
-      );
-
-      const data = await res.json();
-
-      setRoutes((prev) => ({
-        ...prev,
-        [day]: data.route,
-      }));
-
-      await saveRoute(day, data.route, lockedDays[day] || false);
-
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingDays((p) => ({ ...p, [day]: false }));
-    }
-  };
+                      <Button
+                        size="small"
+                        sx={{ mt: 0.5 }}
+                        color={customer.locked ? "error" : "primary"}
+                        variant="outlined"
+                        onClick={() => toggleLock(customer)}
+                      >
+                        {customer.locked ? "Locked" : "Unlocked"}
+                      </Button>
+                    </div>
+                  ))}
+                </SortableContext>
+              </Paper>
+            </DayColumn>
+          </Grid>
+        );
+      })}
+    </Grid>
+  );
 
   // -------------------------
-  const toggleLock = async (day) => {
-    const newVal = !lockedDays[day];
+  const renderDriver = () => {
+    // 🔥 FIX: fallback to customers so UI never goes empty
+    const base = customers.length ? customers : [];
 
-    setLockedDays((prev) => ({
-      ...prev,
-      [day]: newVal,
-    }));
+    const ordered = [...base]
+      .filter((c) => c)
+      .sort((a, b) => getDispatchScore(a) - getDispatchScore(b));
 
-    await saveRoute(day, routes[day] || [], newVal);
-  };
+    return (
+      <Grid container spacing={3}>
+        <Grid item xs={12}>
+          <Paper sx={{ p: 3, minHeight: 500 }}>
+            <Typography variant="h6">
+              🚚 Driver Mode (Tomorrow-First Intelligence)
+            </Typography>
 
-  // -------------------------
-  const handleDragEnd = async (day, event) => {
-    const { active, over } = event;
+            <Divider sx={{ my: 2 }} />
 
-    if (!over || active.id === over.id) return;
+            <SortableContext
+              items={ordered.map((c) => c.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {ordered.map((customer, index) => (
+                <div key={customer.id}>
+                  <Typography variant="caption" sx={{ opacity: 0.6 }}>
+                    Stop #{index + 1} • {customer.service_day}
+                  </Typography>
 
-    const currentRoute =
-      routes[day] ||
-      customers.filter((c) => c.service_day === day);
+                  <SortableItem
+                    id={customer.id}
+                    customer={customer}
+                    disabled={customer.locked}
+                  />
 
-    const oldIndex = currentRoute.findIndex(c => c.id === active.id);
-    const newIndex = currentRoute.findIndex(c => c.id === over.id);
-
-    if (oldIndex === -1 || newIndex === -1) return;
-
-    const updated = arrayMove(
-      currentRoute,
-      oldIndex,
-      newIndex
-    ).map((c, i) => ({ ...c, route_order: i + 1 }));
-
-    setRoutes((prev) => ({
-      ...prev,
-      [day]: updated,
-    }));
-
-    setLockedDays((prev) => ({
-      ...prev,
-      [day]: true,
-    }));
-
-    await saveRoute(day, updated, true);
+                  <Button
+                    size="small"
+                    sx={{ mt: 0.5 }}
+                    color={customer.locked ? "error" : "primary"}
+                    variant="outlined"
+                    onClick={() => toggleLock(customer)}
+                  >
+                    {customer.locked ? "Locked" : "Unlocked"}
+                  </Button>
+                </div>
+              ))}
+            </SortableContext>
+          </Paper>
+        </Grid>
+      </Grid>
+    );
   };
 
   // -------------------------
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" fontWeight="bold" sx={{ mb: 3 }}>
+      <Typography variant="h4" fontWeight="bold" sx={{ mb: 2 }}>
         Dispatch Board
       </Typography>
 
-      <Grid container spacing={3}>
-        {days.map((day) => {
-          const dayCustomers = customers.filter(
-            (c) => c.service_day === day
-          );
+      <ToggleButtonGroup
+        value={mode}
+        exclusive
+        onChange={(_, v) => v && setMode(v)}
+        sx={{ mb: 3 }}
+      >
+        <ToggleButton value="days">Day Mode</ToggleButton>
+        <ToggleButton value="drivers">Driver Mode</ToggleButton>
+      </ToggleButtonGroup>
 
-          const activeRoute =
-            routes[day] ||
-            dayCustomers;
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        {mode === "days" ? renderDays() : renderDriver()}
 
-          const revenue = activeRoute.reduce(
-            (t, c) => t + (PLAN_VALUES[c.service_plan] || 0),
-            0
-          );
-
-          return (
-            <Grid item xs={12} md={6} lg={4} key={day}>
-              <Paper sx={{ p: 3, borderRadius: 3 }}>
-                <Typography variant="h6">{day}</Typography>
-
-                <Typography color="text.secondary">
-                  {activeRoute.length} Stops
-                </Typography>
-
-                <Typography sx={{ fontWeight: "bold", mt: 1, mb: 2 }}>
-                  ${revenue}/month
-                </Typography>
-
-                <Button
-                  variant="contained"
-                  size="small"
-                  disabled={loadingDays[day] || lockedDays[day]}
-                  onClick={() => generateRoute(dayCustomers, day)}
-                >
-                  {loadingDays[day]
-                    ? "Generating..."
-                    : "Generate Route"}
-                </Button>
-
-                <Button
-                  size="small"
-                  variant={lockedDays[day] ? "contained" : "outlined"}
-                  color={lockedDays[day] ? "error" : "primary"}
-                  sx={{ ml: 1 }}
-                  onClick={() => toggleLock(day)}
-                >
-                  {lockedDays[day] ? "Locked" : "Unlocked"}
-                </Button>
-
-                <Divider sx={{ my: 2 }} />
-
-                <DndContext
-                  collisionDetection={closestCenter}
-                  onDragEnd={(e) => handleDragEnd(day, e)}
-                >
-                  <SortableContext
-                    items={activeRoute.map(c => c.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    {activeRoute.map((customer) => (
-                      <SortableItem
-                        key={customer.id}
-                        id={customer.id}
-                        customer={customer}
-                      />
-                    ))}
-                  </SortableContext>
-                </DndContext>
-
-              </Paper>
-            </Grid>
-          );
-        })}
-      </Grid>
+        <DragOverlay>
+          {activeItem ? (
+            <Paper sx={{ p: 1, maxWidth: 240 }}>
+              {activeItem.first_name} {activeItem.last_name}
+            </Paper>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
     </Box>
   );
 }
