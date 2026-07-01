@@ -9,6 +9,7 @@ import DashboardLayout from "./layout/DashboardLayout";
 
 import Dashboard from "./pages/Dashboard";
 import CustomersPage from "./pages/CustomersPage";
+import Signup from "./pages/Signup";
 import Schedule from "./pages/Schedule";
 import RoutesPage from "./pages/Routes";
 import Billing from "./pages/Billing";
@@ -20,45 +21,23 @@ export default function App() {
     <BrowserRouter>
       <DashboardLayout>
         <Routes>
-          <Route
-            path="/"
-            element={<Dashboard />}
-          />
+          <Route path="/" element={<Dashboard />} />
 
-          <Route
-            path="/customers"
-            element={<CustomersPage />}
-          />
+          <Route path="/customers" element={<CustomersPage />} />
 
-          <Route
-            path="/schedule"
-            element={<Schedule />}
-          />
+          <Route path="/signup" element={<Signup />} />
 
-          <Route
-            path="/routes"
-            element={<RoutesPage />}
-          />
+          <Route path="/schedule" element={<Schedule />} />
 
-          <Route
-            path="/map"
-            element={<Map />}
-          />
+          <Route path="/routes" element={<RoutesPage />} />
 
-          <Route
-            path="/billing"
-            element={<Billing />}
-          />
+          <Route path="/map" element={<Map />} />
 
-          <Route
-            path="/settings"
-            element={<Settings />}
-          />
+          <Route path="/billing" element={<Billing />} />
 
-          <Route
-            path="*"
-            element={<Navigate to="/" replace />}
-          />
+          <Route path="/settings" element={<Settings />} />
+
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </DashboardLayout>
     </BrowserRouter>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { PLAN_VALUES } from "../config/pricing";
 
 import {
   Box,
@@ -10,14 +11,6 @@ import {
   Stack,
   Chip,
 } from "@mui/material";
-
-const PLAN_VALUES = {
-  "Basic Relief": 60,
-  "Standard Relief": 80,
-  "Relief Plus": 96,
-  "Relief Premium": 110,
-  "Relief Elite": 144,
-};
 
 export default function Performance() {
   const [customers, setCustomers] = useState([]);

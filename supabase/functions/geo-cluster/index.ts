@@ -1,109 +1,113 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+console.log("Geo Cluster Function Running");
+
+// -------------------------
+// Supabase Admin Client
+// -------------------------
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
+// -------------------------
+// Haversine Distance (miles)
+// -------------------------
 function distance(a: any, b: any) {
-  return Math.sqrt(
-    Math.pow(a.lat - b.lat, 2) + Math.pow(a.lng - b.lng, 2)
-  );
+  const R = 3958.8; // miles
+
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
+
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+
+  return 2 * R * Math.asin(Math.sqrt(x));
 }
 
-function kMeans(points: any[], k = 3, iterations = 6) {
-  if (!points.length) return [];
+// -------------------------
+// Simple clustering (greedy radius grouping)
+// -------------------------
+function clusterCustomers(customers: any[], radius = 2.5) {
+  const clusters: any[] = [];
+  const used = new Set();
 
-  let centroids = points.slice(0, k).map(p => ({
-    lat: p.lat,
-    lng: p.lng,
-  }));
+  for (let i = 0; i < customers.length; i++) {
+    if (used.has(i)) continue;
 
-  let clusters: any[][] = [];
+    const cluster = [customers[i]];
+    used.add(i);
 
-  for (let i = 0; i < iterations; i++) {
-    clusters = Array.from({ length: k }, () => []);
+    for (let j = i + 1; j < customers.length; j++) {
+      if (used.has(j)) continue;
 
-    for (const p of points) {
-      let bestIndex = 0;
-      let bestDist = Infinity;
+      const d = distance(customers[i], customers[j]);
 
-      centroids.forEach((c, idx) => {
-        const d = distance(p, c);
-        if (d < bestDist) {
-          bestDist = d;
-          bestIndex = idx;
-        }
-      });
-
-      clusters[bestIndex].push(p);
+      if (d <= radius) {
+        cluster.push(customers[j]);
+        used.add(j);
+      }
     }
 
-    centroids = clusters.map(cluster => {
-      if (!cluster.length) return { lat: 0, lng: 0 };
-
-      return {
-        lat:
-          cluster.reduce((s, p) => s + p.lat, 0) /
-          cluster.length,
-        lng:
-          cluster.reduce((s, p) => s + p.lng, 0) /
-          cluster.length,
-      };
-    });
+    clusters.push(cluster);
   }
 
   return clusters;
 }
 
-Deno.serve(async () => {
+// -------------------------
+// Handler
+// -------------------------
+Deno.serve(async (req) => {
   try {
-    const { data: customers, error } = await supabase
-      .from("customers")
-      .select("*");
+    const { service_day } = await req.json().catch(() => ({}));
+
+    let query = supabase.from("customers").select("*");
+
+    if (service_day) {
+      query = query.eq("service_day", service_day);
+    }
+
+    const { data: customers, error } = await query;
 
     if (error) throw error;
 
     const valid = (customers || []).filter(
-      c => c.lat != null && c.lng != null
+      (c) => c.lat != null && c.lng != null
     );
 
-    const clusters = kMeans(valid, 3);
+    const clusters = clusterCustomers(valid);
 
-    const results: any[] = [];
-    let zoneIndex = 1;
-
-    for (const cluster of clusters) {
-      const zoneId = `ZONE_${zoneIndex++}`;
-
-      for (const c of cluster) {
-        await supabase
-          .from("customers")
-          .update({ zone_id: zoneId })
-          .eq("id", c.id);
-      }
-
-      results.push({
-        zone: zoneId,
-        size: cluster.length,
-      });
-    }
+    const result = clusters.map((cluster, idx) => ({
+      cluster_id: idx + 1,
+      size: cluster.length,
+      customers: cluster,
+    }));
 
     return new Response(
       JSON.stringify({
         success: true,
-        zones: results,
+        clusters: result,
       }),
-      { headers: { "Content-Type": "application/json" } }
+      {
+        headers: { "Content-Type": "application/json" },
+      }
     );
-  } catch (err) {
+  } catch (err: any) {
     return new Response(
       JSON.stringify({
         success: false,
         error: err.message,
       }),
-      { status: 500 }
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
     );
   }
 });

@@ -9,13 +9,7 @@ import {
 
 import { supabase } from "../lib/supabase";
 
-const PLAN_VALUES = {
-  "Basic Relief": 60,
-  "Standard Relief": 80,
-  "Relief Plus": 96,
-  "Relief Premium": 110,
-  "Relief Elite": 144,
-};
+import { PLAN_VALUES } from "../config/pricing";
 
 export default function Schedule() {
   const [customers, setCustomers] = useState([]);
