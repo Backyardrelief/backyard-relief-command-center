@@ -1,14 +1,7 @@
 import { useEffect, useState } from "react";
-import {
-  Box,
-  Typography,
-  Paper,
-  Grid,
-  Divider,
-} from "@mui/material";
+import { Box, Typography, Paper, Grid, Divider, Chip } from "@mui/material";
 
 import { supabase } from "../lib/supabase";
-
 import { PLAN_VALUES } from "../config/pricing";
 
 export default function Schedule() {
@@ -21,31 +14,34 @@ export default function Schedule() {
   const loadCustomers = async () => {
     const { data, error } = await supabase
       .from("customers")
-      .select("*");
+      .select("*")
+      .order("created_at", { ascending: false });
 
     if (error) {
-      console.error(error);
+      console.error("Schedule fetch error:", error);
       return;
     }
 
     setCustomers(data || []);
   };
 
-  const days = [
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-  ];
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+
+  const getCustomerRevenue = (customer) => {
+    return (
+      Number(customer.monthly_amount) ||
+      PLAN_VALUES[customer.service_plan] ||
+      0
+    );
+  };
+
+  const isActiveCustomer = (customer) => {
+    return String(customer.status || "").toLowerCase() === "active";
+  };
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography
-        variant="h4"
-        fontWeight="bold"
-        sx={{ mb: 3 }}
-      >
+      <Typography variant="h4" fontWeight="bold" sx={{ mb: 3 }}>
         Weekly Schedule
       </Typography>
 
@@ -53,30 +49,17 @@ export default function Schedule() {
         {days.map((day) => {
           const dayCustomers = customers.filter(
             (customer) =>
-              customer.service_day === day
+              customer.service_day === day && isActiveCustomer(customer)
           );
 
-          const revenue = dayCustomers.reduce(
-            (sum, customer) =>
-              sum +
-              (PLAN_VALUES[
-                customer.service_plan
-              ] || 0),
-            0
-          );
+          const revenue = dayCustomers.reduce((sum, customer) => {
+            return sum + getCustomerRevenue(customer);
+          }, 0);
 
           return (
             <Grid item xs={12} md={6} key={day}>
-              <Paper
-                sx={{
-                  p: 3,
-                  borderRadius: 3,
-                }}
-              >
-                <Typography
-                  variant="h6"
-                  fontWeight="bold"
-                >
+              <Paper sx={{ p: 3, borderRadius: 3 }}>
+                <Typography variant="h6" fontWeight="bold">
                   {day}
                 </Typography>
 
@@ -84,52 +67,39 @@ export default function Schedule() {
                   Stops: {dayCustomers.length}
                 </Typography>
 
-                <Typography
-                  sx={{
-                    fontWeight: "bold",
-                    mb: 2,
-                  }}
-                >
+                <Typography sx={{ fontWeight: "bold", mb: 2 }}>
                   Revenue: ${revenue}
                 </Typography>
 
                 <Divider sx={{ mb: 2 }} />
 
-                {dayCustomers.map(
-                  (customer) => (
-                    <Box
-                      key={customer.id}
-                      sx={{
-                        mb: 2,
-                        p: 1.5,
-                        background:
-                          "#f7f7f7",
-                        borderRadius: 2,
-                      }}
-                    >
-                      <Typography
-                        fontWeight="bold"
-                      >
-                        {customer.first_name}{" "}
-                        {customer.last_name}
-                      </Typography>
+                {dayCustomers.map((customer) => (
+                  <Box
+                    key={customer.id}
+                    sx={{
+                      mb: 2,
+                      p: 1.5,
+                      background: "#f7f7f7",
+                      borderRadius: 2,
+                    }}
+                  >
+                    <Typography fontWeight="bold">
+                      {customer.first_name} {customer.last_name}
+                    </Typography>
 
-                      <Typography variant="body2">
-                        {customer.address}
-                      </Typography>
+                    <Typography variant="body2">{customer.address}</Typography>
 
-                      <Typography variant="body2">
-                        {customer.service_plan}
-                      </Typography>
-                    </Box>
-                  )
-                )}
+                    <Typography variant="body2">
+                      {customer.service_plan}
+                    </Typography>
+
+                    <StackSafeCustomerMeta customer={customer} />
+                  </Box>
+                ))}
 
                 {dayCustomers.length === 0 && (
-                  <Typography
-                    color="text.secondary"
-                  >
-                    No scheduled customers
+                  <Typography color="text.secondary">
+                    No active scheduled customers
                   </Typography>
                 )}
               </Paper>
@@ -137,6 +107,22 @@ export default function Schedule() {
           );
         })}
       </Grid>
+    </Box>
+  );
+}
+
+function StackSafeCustomerMeta({ customer }) {
+  return (
+    <Box sx={{ mt: 1, display: "flex", gap: 1, flexWrap: "wrap" }}>
+      <Chip
+        size="small"
+        label={`Billing: ${customer.subscription_status || "Not connected"}`}
+      />
+
+      <Chip
+        size="small"
+        label={`Monthly: $${Number(customer.monthly_amount) || 0}`}
+      />
     </Box>
   );
 }

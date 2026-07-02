@@ -169,29 +169,60 @@ export default function CustomerTable() {
 
   // -------------------------
   const columns = [
-    { field: "name", headerName: "Name", flex: 1, minWidth: 150 },
-    { field: "email", headerName: "Email", flex: 1, minWidth: 180 },
-    { field: "phone", headerName: "Phone", flex: 1 },
-    { field: "address", headerName: "Address", flex: 1 },
+  { field: "name", headerName: "Name", flex: 1, minWidth: 150 },
+  { field: "email", headerName: "Email", flex: 1, minWidth: 180 },
+  { field: "phone", headerName: "Phone", flex: 1 },
+  { field: "address", headerName: "Address", flex: 1, minWidth: 180 },
 
-    {
-      field: "actions",
-      headerName: "Actions",
-      width: 120,
-      sortable: false,
-      renderCell: (params) => (
-        <Stack direction="row" spacing={1}>
-          <IconButton onClick={() => handleEdit(params.row)}>
-            <EditIcon fontSize="small" />
-          </IconButton>
+  {
+    field: "service_plan",
+    headerName: "Plan",
+    flex: 1,
+    minWidth: 130,
+  },
 
-          <IconButton onClick={() => setDeleteTarget(params.row)}>
-            <DeleteIcon fontSize="small" />
-          </IconButton>
-        </Stack>
-      ),
-    },
-  ];
+  {
+    field: "status",
+    headerName: "CRM Status",
+    flex: 1,
+    minWidth: 130,
+    valueGetter: (value) => value || "Unknown",
+  },
+
+  {
+    field: "subscription_status",
+    headerName: "Billing",
+    flex: 1,
+    minWidth: 150,
+    valueGetter: (value) => value || "Not Connected",
+  },
+
+  {
+    field: "service_day",
+    headerName: "Service Day",
+    flex: 1,
+    minWidth: 130,
+    valueGetter: (value) => value || "Unassigned",
+  },
+
+  {
+    field: "actions",
+    headerName: "Actions",
+    width: 120,
+    sortable: false,
+    renderCell: (params) => (
+      <Stack direction="row" spacing={1}>
+        <IconButton onClick={() => handleEdit(params.row)}>
+          <EditIcon fontSize="small" />
+        </IconButton>
+
+        <IconButton onClick={() => setDeleteTarget(params.row)}>
+          <DeleteIcon fontSize="small" />
+        </IconButton>
+      </Stack>
+    ),
+  },
+];
 
   return (
     <Box>

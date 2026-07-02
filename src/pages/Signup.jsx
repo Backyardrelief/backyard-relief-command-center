@@ -20,16 +20,16 @@ import { PLANS, ADD_ONS } from "../config/pricing";
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
-function isPriorityPlan(plan) {
-  return plan === "Premium" || plan === "Elite";
+function isPriorityPlan(planKey) {
+  return planKey === "Premium" || planKey === "Elite";
 }
 
-function getRequiredServiceDayCount(plan) {
-  if (plan === "Elite") return 2;
+function getRequiredServiceDayCount(planKey) {
+  if (planKey === "Elite") return 2;
   return 1;
 }
 
-export default function Signup() {
+ export default function Signup() {
   const [form, setForm] = useState({
     first_name: "",
     last_name: "",
@@ -60,14 +60,19 @@ export default function Signup() {
   const requiredDayCount = getRequiredServiceDayCount(form.plan);
 
   const serviceAreaResult = useMemo(() => {
-    if (!form.zip || !form.plan) return null;
-    return getServiceAreaResult(form.zip, form.plan, selectedDays);
+    const cleanZip = String(form.zip || "").trim().slice(0, 5);
+
+    if (cleanZip.length < 5 || !form.plan) {
+      return null;
+    }
+
+    return getServiceAreaResult(cleanZip, form.plan, selectedDays);
   }, [form.zip, form.plan, selectedDays]);
 
   const displayScheduleDays = useMemo(() => {
     if (!serviceAreaResult?.allowed) return [];
 
-    if (priorityPlan && selectedDays.length > 0) {
+    if (priorityPlan) {
       return selectedDays;
     }
 
@@ -93,13 +98,32 @@ export default function Signup() {
   const hasValidPriorityDays =
     !priorityPlan || selectedDays.length === requiredDayCount;
 
+  const hasRequiredCustomerInfo =
+    form.first_name.trim() &&
+    form.last_name.trim() &&
+    form.phone.trim() &&
+    form.email.trim() &&
+    form.address.trim() &&
+    form.city.trim() &&
+    form.state.trim() &&
+    form.zip.trim().length >= 5;
+
   const canContinue =
-    serviceAreaResult?.allowed && hasValidPriorityDays && !checkoutLoading;
+    Boolean(hasRequiredCustomerInfo) &&
+    Boolean(serviceAreaResult?.allowed) &&
+    hasValidPriorityDays &&
+    !checkoutLoading;
 
   const handleChange = (field, value) => {
+    let nextValue = value;
+
+    if (field === "zip") {
+      nextValue = value.replace(/\D/g, "").slice(0, 5);
+    }
+
     setForm((current) => ({
       ...current,
-      [field]: value,
+      [field]: nextValue,
     }));
 
     if (field === "plan") {
@@ -135,59 +159,68 @@ export default function Signup() {
   };
 
   const handleContinue = async () => {
-  if (!canContinue) return;
+    if (!canContinue) return;
 
-  setCheckoutLoading(true);
-  setCheckoutError("");
+    setCheckoutLoading(true);
+    setCheckoutError("");
 
-  try {
-    const selectedAddOns = ADD_ONS.filter((item) => addOns[item.key]);
+    try {
+      const selectedAddOns = ADD_ONS.filter((item) => addOns[item.key]);
 
-    const payload = {
-      customer: form,
-      plan: selectedPlan,
-      selected_add_ons: selectedAddOns,
-      zone: serviceAreaResult.zone,
-      service_schedule: displayServiceSchedule,
-      monthly_total: monthlyTotal,
-    };
+      const payload = {
+        customer: {
+          ...form,
+          zip: String(form.zip || "").trim().slice(0, 5),
+        },
+        plan: selectedPlan,
+        selected_add_ons: selectedAddOns,
+        zone: serviceAreaResult.zone,
+        service_schedule: displayServiceSchedule,
+        monthly_total: monthlyTotal,
+      };
 
-    console.log("CHECKOUT PAYLOAD:", payload);
+      console.log("CHECKOUT PAYLOAD:", payload);
 
-    const { data, error } = await supabase.functions.invoke(
-      "create-checkout-session",
-      {
-        body: payload,
+      const { data, error } = await supabase.functions.invoke(
+        "create-checkout-session",
+        {
+          body: payload,
+        }
+      );
+
+      console.log("FUNCTION DATA:", data);
+      console.log("FUNCTION ERROR:", error);
+
+      if (error) {
+        throw error;
       }
-    );
 
-    console.log("FUNCTION DATA:", data);
-    console.log("FUNCTION ERROR:", error);
+      if (!data?.url) {
+        throw new Error("Stripe checkout URL was not returned.");
+      }
 
-    if (error) {
-      alert(JSON.stringify(error, null, 2));
-      throw error;
+      window.location.assign(data.url);
+    } catch (err) {
+      console.error("CHECKOUT FAILURE:", err);
+
+      setCheckoutError(
+        err?.message || "Unable to start checkout. Please try again."
+      );
+
+      setCheckoutLoading(false);
     }
-
-    if (!data?.url) {
-      alert(JSON.stringify(data, null, 2));
-      throw new Error("Stripe checkout URL was not returned.");
-    }
-
-    window.location.href = data.url;
-  } catch (err) {
-    console.error("CHECKOUT FAILURE:", err);
-
-    setCheckoutError(
-      err?.message || "Unable to start checkout. Please try again."
-    );
-
-    setCheckoutLoading(false);
-  }
-};
+  };
 
   return (
-    <Box sx={{ p: 3, maxWidth: 1100, mx: "auto" }}>
+    <Box
+      sx={{
+        p: { xs: 2, sm: 3 },
+        maxWidth: 1100,
+        mx: "auto",
+        position: "relative",
+        zIndex: 1,
+      }}
+    >
       <Typography variant="h4" fontWeight="bold" gutterBottom>
         Join The Relief Club
       </Typography>
@@ -225,6 +258,7 @@ export default function Signup() {
             >
               <TextField
                 fullWidth
+                required
                 label="First Name"
                 value={form.first_name}
                 onChange={(e) => handleChange("first_name", e.target.value)}
@@ -232,6 +266,7 @@ export default function Signup() {
 
               <TextField
                 fullWidth
+                required
                 label="Last Name"
                 value={form.last_name}
                 onChange={(e) => handleChange("last_name", e.target.value)}
@@ -239,14 +274,18 @@ export default function Signup() {
 
               <TextField
                 fullWidth
+                required
                 label="Phone"
+                type="tel"
                 value={form.phone}
                 onChange={(e) => handleChange("phone", e.target.value)}
               />
 
               <TextField
                 fullWidth
+                required
                 label="Email"
+                type="email"
                 value={form.email}
                 onChange={(e) => handleChange("email", e.target.value)}
               />
@@ -255,6 +294,7 @@ export default function Signup() {
             <Box sx={{ mt: 2 }}>
               <TextField
                 fullWidth
+                required
                 label="Street Address"
                 value={form.address}
                 onChange={(e) => handleChange("address", e.target.value)}
@@ -274,6 +314,7 @@ export default function Signup() {
             >
               <TextField
                 fullWidth
+                required
                 label="City"
                 value={form.city}
                 onChange={(e) => handleChange("city", e.target.value)}
@@ -281,6 +322,7 @@ export default function Signup() {
 
               <TextField
                 fullWidth
+                required
                 label="State"
                 value={form.state}
                 onChange={(e) => handleChange("state", e.target.value)}
@@ -288,8 +330,13 @@ export default function Signup() {
 
               <TextField
                 fullWidth
+                required
                 label="ZIP Code"
                 value={form.zip}
+                inputProps={{
+                  inputMode: "numeric",
+                  maxLength: 5,
+                }}
                 onChange={(e) => handleChange("zip", e.target.value)}
               />
             </Box>
@@ -438,7 +485,7 @@ export default function Signup() {
 
                 <Typography>
                   <strong>Frequency:</strong>{" "}
-                  {displayServiceSchedule?.frequency}
+                  {displayServiceSchedule?.frequency || "Weekly"}
                 </Typography>
 
                 {priorityPlan && (

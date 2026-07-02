@@ -1,151 +1,129 @@
 // src/lib/serviceArea.js
 
-// ======================
-// SERVICE AREA ZIPS
-// ======================
-
 export const ALLOWED_ZIPS = [
-  "80110",
-  "80113",
-  "80120",
-  "80121",
-  "80122",
-  "80123",
-  "80126",
-  "80128",
-  "80129",
-  "80130",
-  "80161",
-  "80162",
-  "80163",
-  "80166",
   "80235",
   "80236",
+  "80121",
+  "80122",
+  "80120",
+  "80123",
+  "80127",
+  "80128",
+  "80129",
+  "80126",
+  "80130",
 ];
 
-// ======================
-// ZIP -> ZONE
-// ======================
+export const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
 export const ZIP_TO_ZONE = {
-  // MONDAY
-  "80123": "ZONE_A",
-  "80235": "ZONE_A",
-  "80236": "ZONE_A",
+  "80235": "Zone E",
+  "80236": "Zone E",
 
-  // TUESDAY
-  "80128": "ZONE_B",
-  "80162": "ZONE_B",
+  "80121": "Zone D",
+  "80122": "Zone D",
 
-  // WEDNESDAY
-  "80129": "ZONE_C",
-  "80126": "ZONE_C",
-  "80130": "ZONE_C",
-  "80163": "ZONE_C",
+  "80120": "Zone B",
 
-  // THURSDAY
-  "80121": "ZONE_D",
-  "80122": "ZONE_D",
-  "80161": "ZONE_D",
-  "80166": "ZONE_D",
+  "80123": "Zone A",
+  "80127": "Zone A",
+  "80128": "Zone A",
 
-  // FRIDAY
-  "80120": "ZONE_E",
-  "80110": "ZONE_E",
-  "80113": "ZONE_E",
+  "80129": "Zone C",
+  "80126": "Zone C",
+  "80130": "Zone C",
 };
-
-// ======================
-// ZONE -> PRIMARY DAY
-// ======================
 
 export const ZONE_TO_DAY = {
-  ZONE_A: "Monday",
-  ZONE_B: "Tuesday",
-  ZONE_C: "Wednesday",
-  ZONE_D: "Thursday",
-  ZONE_E: "Friday",
+  "Zone E": "Monday",
+  "Zone D": "Tuesday",
+  "Zone B": "Wednesday",
+  "Zone A": "Thursday",
+  "Zone C": "Friday",
 };
-
-// ======================
-// ELITE (TWICE WEEKLY)
-// ======================
 
 export const ZONE_TO_ELITE_DAYS = {
-  ZONE_A: ["Monday", "Thursday"],
-  ZONE_B: ["Tuesday", "Friday"],
-  ZONE_C: ["Wednesday", "Monday"],
-  ZONE_D: ["Thursday", "Tuesday"],
-  ZONE_E: ["Friday", "Wednesday"],
+  "Zone E": ["Monday", "Thursday"],
+  "Zone D": ["Tuesday", "Friday"],
+  "Zone B": ["Wednesday", "Monday"],
+  "Zone A": ["Thursday", "Monday"],
+  "Zone C": ["Friday", "Tuesday"],
 };
 
-// ======================
-// HELPERS
-// ======================
-
 export function isZipInServiceArea(zip) {
-  return ALLOWED_ZIPS.includes(String(zip).trim());
+  const cleanZip = String(zip || "").trim().slice(0, 5);
+  return ALLOWED_ZIPS.includes(cleanZip);
 }
 
 export function getZoneFromZip(zip) {
-  return ZIP_TO_ZONE[String(zip).trim()] || null;
+  const cleanZip = String(zip || "").trim().slice(0, 5);
+  return ZIP_TO_ZONE[cleanZip] || null;
 }
 
-// ======================
-// SCHEDULE BUILDER
-// ======================
+export function isPriorityPlan(plan) {
+  return plan === "Premium" || plan === "Elite";
+}
 
-export function getServiceSchedule(zip, plan) {
+export function getRequiredServiceDayCount(plan) {
+  if (plan === "Elite") return 2;
+  return 1;
+}
+
+export function getServiceSchedule(zip, plan, selectedDays = []) {
   const zone = getZoneFromZip(zip);
 
   if (!zone) return null;
 
-  // BASIC RELIEF
+  if (plan === "Premium") {
+    return {
+      frequency: "weekly",
+      days: selectedDays.length ? selectedDays : [ZONE_TO_DAY[zone]],
+      week_offset: 0,
+      priority_scheduling: true,
+    };
+  }
+
+  if (plan === "Elite") {
+    return {
+      frequency: "twice_weekly",
+      days: selectedDays.length ? selectedDays : ZONE_TO_ELITE_DAYS[zone],
+      week_offset: 0,
+      priority_scheduling: true,
+    };
+  }
+
   if (plan === "Basic") {
     return {
       frequency: "biweekly",
       days: [ZONE_TO_DAY[zone]],
       week_offset: 0,
+      priority_scheduling: false,
     };
   }
 
-  // ELITE
-  if (plan === "Elite") {
-    return {
-      frequency: "twice_weekly",
-      days: ZONE_TO_ELITE_DAYS[zone],
-      week_offset: 0,
-    };
-  }
-
-  // STANDARD / PLUS / PREMIUM
   return {
     frequency: "weekly",
     days: [ZONE_TO_DAY[zone]],
     week_offset: 0,
+    priority_scheduling: false,
   };
 }
 
-// ======================
-// MAIN LOOKUP
-// ======================
-
-export function getServiceAreaResult(zip, plan) {
-  const allowed = isZipInServiceArea(zip);
+export function getServiceAreaResult(zip, plan, selectedDays = []) {
+  const cleanZip = String(zip || "").trim().slice(0, 5);
+  const allowed = isZipInServiceArea(cleanZip);
 
   if (!allowed) {
     return {
       allowed: false,
       zone: null,
       service_schedule: null,
-      message:
-        "Sorry, Backyard Relief does not currently service your area.",
+      message: "Sorry, Backyard Relief does not currently service your area.",
     };
   }
 
-  const zone = getZoneFromZip(zip);
-
-  const service_schedule = getServiceSchedule(zip, plan);
+  const zone = getZoneFromZip(cleanZip);
+  const service_schedule = getServiceSchedule(cleanZip, plan, selectedDays);
 
   return {
     allowed: true,
