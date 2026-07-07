@@ -12,9 +12,11 @@ import CustomersPage from "./pages/CustomersPage";
 import Signup from "./pages/Signup";
 import Schedule from "./pages/Schedule";
 import RoutesPage from "./pages/Routes";
+import DriverDashboard from "./pages/DriverDashboard";
 import Billing from "./pages/Billing";
 import Settings from "./pages/Settings";
 import Map from "./pages/Map";
+import ServiceHistory from "./pages/ServiceHistory";
 
 export default function App() {
   return (
@@ -31,9 +33,13 @@ export default function App() {
 
           <Route path="/routes" element={<RoutesPage />} />
 
+          <Route path="/driver" element={<DriverDashboard />} />
+
           <Route path="/map" element={<Map />} />
 
           <Route path="/billing" element={<Billing />} />
+
+          <Route path="/service-history" element={<ServiceHistory />} />
 
           <Route path="/settings" element={<Settings />} />
 

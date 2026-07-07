@@ -35,28 +35,8 @@ function isActiveCustomer(customer) {
   return String(customer.status || "").toLowerCase() === "active";
 }
 
-function getTodayIndex() {
-  const jsDay = new Date().getDay();
-  const map = { 1: 0, 2: 1, 3: 2, 4: 3, 5: 4 };
-  return map[jsDay] ?? 0;
-}
-
-function getDayPriority(day) {
-  const todayIndex = getTodayIndex();
-  const dayIndex = DAYS.indexOf(day);
-  if (dayIndex === -1) return 99;
-  return (dayIndex - todayIndex + 7) % 7;
-}
-
-function getDispatchScore(customer) {
-  const dayPriority = getDayPriority(customer.service_day);
-  const lockPenalty = customer.locked ? 0.1 : 0;
-  const routeIndex = customer.route_index ?? 0;
-  return dayPriority * 10000 + routeIndex + lockPenalty;
-}
-
 function DayColumn({ day, children }) {
-  const { setNodeRef, isOver } = useDroppable({ id: day });
+  const { setNodeRef, isOver } = useDroppable({ id: `day-${day}` });
 
   return (
     <div
@@ -76,9 +56,12 @@ function DayColumn({ day, children }) {
 
 export default function Routes() {
   const [customers, setCustomers] = useState([]);
-  const [routes, setRoutes] = useState({});
+  const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState("days");
   const [activeItem, setActiveItem] = useState(null);
+  const [routeOrders, setRouteOrders] = useState({});
+
+  const debounceRef = useRef({});
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -86,37 +69,95 @@ export default function Routes() {
     })
   );
 
-  const debounceRef = useRef({});
-
   useEffect(() => {
-    const load = async () => {
-      const { data, error } = await supabase.from("customers").select("*");
+  loadCustomers();
 
-      if (error) {
-        console.error("Routes customer fetch error:", error);
-        return;
+  const channel = supabase
+    .channel("customers-routes-refresh")
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "customers",
+      },
+      () => {
+        loadCustomers();
       }
+    )
+    .subscribe();
 
-      setCustomers(data || []);
-    };
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}, []);
 
-    load();
-  }, []);
+  const loadCustomers = async () => {
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from("customers")
+      .select("*")
+      .order("service_day", { ascending: true });
+
+    if (error) {
+      console.error("Routes customer fetch error:", error);
+      setLoading(false);
+      return;
+    }
+
+    setCustomers(data || []);
+    setLoading(false);
+  };
 
   const activeCustomers = customers.filter(isActiveCustomer);
+
+  const getCustomersForDay = (day) => {
+    const dayCustomers = activeCustomers.filter((c) => c.service_day === day);
+    const order = routeOrders[day];
+
+    if (!order?.length) return dayCustomers;
+
+    return [...dayCustomers].sort((a, b) => {
+      const aIndex = order.indexOf(a.id);
+      const bIndex = order.indexOf(b.id);
+
+      if (aIndex === -1 && bIndex === -1) return 0;
+      if (aIndex === -1) return 1;
+      if (bIndex === -1) return -1;
+
+      return aIndex - bIndex;
+    });
+  };
+
+  const getTargetDay = (overId) => {
+    if (!overId) return null;
+
+    const id = String(overId);
+
+    if (id.startsWith("day-")) {
+      return id.replace("day-", "");
+    }
+
+    const overCustomer = activeCustomers.find((c) => c.id === overId);
+    return overCustomer?.service_day || null;
+  };
 
   const toggleLock = async (customer) => {
     const updated = !customer.locked;
 
-    await supabase
+    const { error } = await supabase
       .from("customers")
       .update({ locked: updated })
       .eq("id", customer.id);
 
+    if (error) {
+      console.error("Lock update error:", error);
+      return;
+    }
+
     setCustomers((prev) =>
-      prev.map((c) =>
-        c.id === customer.id ? { ...c, locked: updated } : c
-      )
+      prev.map((c) => (c.id === customer.id ? { ...c, locked: updated } : c))
     );
   };
 
@@ -135,10 +176,11 @@ export default function Routes() {
     );
 
     const data = await res.json();
+    const optimized = data.route || [];
 
-    setRoutes((prev) => ({
+    setRouteOrders((prev) => ({
       ...prev,
-      [day]: data.route || [],
+      [day]: optimized.map((c) => c.id),
     }));
   };
 
@@ -166,52 +208,46 @@ export default function Routes() {
     const customer = activeCustomers.find((c) => c.id === active.id);
     if (!customer || customer.locked) return;
 
-    if (mode === "days") {
-      const sourceDay = customer.service_day;
-      const targetDay = over.id;
+    const sourceDay = customer.service_day;
+    const targetDay = getTargetDay(over.id);
 
-      if (!DAYS.includes(targetDay)) return;
+    if (!targetDay || !DAYS.includes(targetDay)) return;
+    if (sourceDay === targetDay) return;
 
-      if (sourceDay !== targetDay) {
-        await supabase
-          .from("customers")
-          .update({ service_day: targetDay })
-          .eq("id", customer.id);
+    setCustomers((prev) =>
+      prev.map((c) =>
+        c.id === customer.id ? { ...c, service_day: targetDay } : c
+      )
+    );
 
-        setCustomers((prev) =>
-          prev.map((c) =>
-            c.id === customer.id
-              ? { ...c, service_day: targetDay }
-              : c
-          )
-        );
+    setRouteOrders((prev) => ({
+      ...prev,
+      [sourceDay]: (prev[sourceDay] || []).filter((id) => id !== customer.id),
+      [targetDay]: [
+        ...(prev[targetDay] || []).filter((id) => id !== customer.id),
+        customer.id,
+      ],
+    }));
 
-        scheduleOptimize(sourceDay);
-        scheduleOptimize(targetDay);
-      }
+    const { error } = await supabase
+      .from("customers")
+      .update({ service_day: targetDay })
+      .eq("id", customer.id);
+
+    if (error) {
+      console.error("Service day update error:", error);
+      loadCustomers();
+      return;
     }
 
-    if (mode === "drivers") {
-      const filtered = activeCustomers.filter((c) => !c.locked);
-
-      const ordered = [...filtered, customer].sort(
-        (a, b) => getDispatchScore(a) - getDispatchScore(b)
-      );
-
-      setRoutes({
-        main_driver: ordered,
-      });
-    }
+    scheduleOptimize(sourceDay);
+    scheduleOptimize(targetDay);
   };
 
   const renderDays = () => (
     <Grid container spacing={3}>
       {DAYS.map((day) => {
-        const dayCustomers = activeCustomers.filter(
-          (c) => c.service_day === day
-        );
-
-        const activeRoute = routes[day]?.length ? routes[day] : dayCustomers;
+        const dayCustomers = getCustomersForDay(day);
 
         return (
           <Grid item xs={12} md={4} key={day}>
@@ -220,7 +256,7 @@ export default function Routes() {
                 <Typography variant="h6">{day}</Typography>
 
                 <Typography color="text.secondary">
-                  Active Stops: {activeRoute.length}
+                  Active Stops: {dayCustomers.length}
                 </Typography>
 
                 <Button
@@ -228,6 +264,7 @@ export default function Routes() {
                   size="small"
                   sx={{ mt: 1, mb: 2 }}
                   onClick={() => rebuildDay(day)}
+                  disabled={loading}
                 >
                   Optimize Route
                 </Button>
@@ -235,10 +272,10 @@ export default function Routes() {
                 <Divider sx={{ my: 2 }} />
 
                 <SortableContext
-                  items={activeRoute.map((c) => c.id)}
+                  items={dayCustomers.map((c) => c.id)}
                   strategy={verticalListSortingStrategy}
                 >
-                  {activeRoute.map((customer) => (
+                  {dayCustomers.map((customer) => (
                     <div key={customer.id}>
                       <SortableItem
                         id={customer.id}
@@ -259,9 +296,9 @@ export default function Routes() {
                   ))}
                 </SortableContext>
 
-                {activeRoute.length === 0 && (
+                {dayCustomers.length === 0 && (
                   <Typography color="text.secondary">
-                    No active customers
+                    Drop active customers here
                   </Typography>
                 )}
               </Paper>
@@ -273,16 +310,19 @@ export default function Routes() {
   );
 
   const renderDriver = () => {
-    const ordered = [...activeCustomers]
-      .filter((c) => c)
-      .sort((a, b) => getDispatchScore(a) - getDispatchScore(b));
+    const ordered = [...activeCustomers].sort((a, b) => {
+      const aDay = DAYS.indexOf(a.service_day);
+      const bDay = DAYS.indexOf(b.service_day);
+
+      return (aDay === -1 ? 99 : aDay) - (bDay === -1 ? 99 : bDay);
+    });
 
     return (
       <Grid container spacing={3}>
         <Grid item xs={12}>
           <Paper sx={{ p: 3, minHeight: 500 }}>
             <Typography variant="h6">
-              🚚 Driver Mode (Tomorrow-First Intelligence)
+              🚚 Driver Mode
             </Typography>
 
             <Typography color="text.secondary">
@@ -298,7 +338,7 @@ export default function Routes() {
               {ordered.map((customer, index) => (
                 <div key={customer.id}>
                   <Typography variant="caption" sx={{ opacity: 0.6 }}>
-                    Stop #{index + 1} • {customer.service_day}
+                    Stop #{index + 1} • {customer.service_day || "Unassigned"}
                   </Typography>
 
                   <SortableItem

@@ -53,7 +53,7 @@ export const ADD_ONS = [
   {
     key: "yard_deodorizing_monthly",
     label: "Monthly Yard Deodorizing",
-    price: 40,
+    price: 35,
     stripePriceId: "price_1ToC4wRtjZ6dFcKROJbg3jMv",
   },
 
@@ -61,6 +61,13 @@ export const ADD_ONS = [
     key: "yard_deodorizing_visit",
     label: "Weekly Yard Deodorizing",
     price: 80,
+    stripePriceId: "price_1ToC9wRtjZ6dFcKRAbuf6WSy",
+  },
+
+  {
+    key: "yard_deodorizing_visit",
+    label: "BiWeekly Yard Deodorizing",
+    price: 40,
     stripePriceId: "price_1ToC9wRtjZ6dFcKRAbuf6WSy",
   },
 
