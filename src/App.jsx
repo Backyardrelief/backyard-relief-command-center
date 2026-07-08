@@ -18,34 +18,122 @@ import Settings from "./pages/Settings";
 import Map from "./pages/Map";
 import ServiceHistory from "./pages/ServiceHistory";
 
+function RequireAccess({ children }) {
+  const isUnlocked = localStorage.getItem("br_crm_unlocked") === "true";
+
+  if (!isUnlocked) {
+    const code = window.prompt("Enter Backyard Relief CRM access code:");
+
+    if (code === import.meta.env.VITE_CRM_ACCESS_CODE) {
+      localStorage.setItem("br_crm_unlocked", "true");
+      return children;
+    }
+
+    return <Navigate to="/signup" replace />;
+  }
+
+  return children;
+}
+
+function ProtectedLayout({ children }) {
+  return (
+    <RequireAccess>
+      <DashboardLayout>{children}</DashboardLayout>
+    </RequireAccess>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
-      <DashboardLayout>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
+      <Routes>
+        {/* PUBLIC CUSTOMER SIGNUP PAGE */}
+        <Route path="/signup" element={<Signup />} />
 
-          <Route path="/customers" element={<CustomersPage />} />
+        {/* PROTECTED CRM PAGES */}
+        <Route
+          path="/"
+          element={
+            <ProtectedLayout>
+              <Dashboard />
+            </ProtectedLayout>
+          }
+        />
 
-          <Route path="/signup" element={<Signup />} />
+        <Route
+          path="/customers"
+          element={
+            <ProtectedLayout>
+              <CustomersPage />
+            </ProtectedLayout>
+          }
+        />
 
-          <Route path="/schedule" element={<Schedule />} />
+        <Route
+          path="/schedule"
+          element={
+            <ProtectedLayout>
+              <Schedule />
+            </ProtectedLayout>
+          }
+        />
 
-          <Route path="/routes" element={<RoutesPage />} />
+        <Route
+          path="/routes"
+          element={
+            <ProtectedLayout>
+              <RoutesPage />
+            </ProtectedLayout>
+          }
+        />
 
-          <Route path="/driver" element={<DriverDashboard />} />
+        <Route
+          path="/driver"
+          element={
+            <ProtectedLayout>
+              <DriverDashboard />
+            </ProtectedLayout>
+          }
+        />
 
-          <Route path="/map" element={<Map />} />
+        <Route
+          path="/map"
+          element={
+            <ProtectedLayout>
+              <Map />
+            </ProtectedLayout>
+          }
+        />
 
-          <Route path="/billing" element={<Billing />} />
+        <Route
+          path="/billing"
+          element={
+            <ProtectedLayout>
+              <Billing />
+            </ProtectedLayout>
+          }
+        />
 
-          <Route path="/service-history" element={<ServiceHistory />} />
+        <Route
+          path="/service-history"
+          element={
+            <ProtectedLayout>
+              <ServiceHistory />
+            </ProtectedLayout>
+          }
+        />
 
-          <Route path="/settings" element={<Settings />} />
+        <Route
+          path="/settings"
+          element={
+            <ProtectedLayout>
+              <Settings />
+            </ProtectedLayout>
+          }
+        />
 
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </DashboardLayout>
+        <Route path="*" element={<Navigate to="/signup" replace />} />
+      </Routes>
     </BrowserRouter>
   );
 }
