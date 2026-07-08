@@ -29,7 +29,7 @@ function getRequiredServiceDayCount(planKey) {
   return 1;
 }
 
- export default function Signup() {
+export default function Signup() {
   const [form, setForm] = useState({
     first_name: "",
     last_name: "",
@@ -40,6 +40,7 @@ function getRequiredServiceDayCount(planKey) {
     state: "CO",
     zip: "",
     plan: "Standard",
+    sms_consent: false,
   });
 
   const [selectedDays, setSelectedDays] = useState([]);
@@ -112,9 +113,10 @@ function getRequiredServiceDayCount(planKey) {
     Boolean(hasRequiredCustomerInfo) &&
     Boolean(serviceAreaResult?.allowed) &&
     hasValidPriorityDays &&
+    form.sms_consent &&
     !checkoutLoading;
 
-  const handleChange = (field, value) => {
+      const handleChange = (field, value) => {
     let nextValue = value;
 
     if (field === "zip") {
@@ -171,6 +173,9 @@ function getRequiredServiceDayCount(planKey) {
         customer: {
           ...form,
           zip: String(form.zip || "").trim().slice(0, 5),
+          sms_consent: form.sms_consent,
+          sms_consent_source: "website_signup",
+          sms_consent_timestamp: new Date().toISOString(),
         },
         plan: selectedPlan,
         selected_add_ons: selectedAddOns,
@@ -291,7 +296,7 @@ function getRequiredServiceDayCount(planKey) {
               />
             </Box>
 
-            <Box sx={{ mt: 2 }}>
+                        <Box sx={{ mt: 2 }}>
               <TextField
                 fullWidth
                 required
@@ -424,7 +429,7 @@ function getRequiredServiceDayCount(planKey) {
           </CardContent>
         </Card>
 
-        <Card>
+                <Card>
           <CardContent>
             <Typography variant="h6" fontWeight="bold" gutterBottom>
               Signup Summary
@@ -496,11 +501,53 @@ function getRequiredServiceDayCount(planKey) {
               </>
             )}
 
+            <Divider sx={{ my: 2 }} />
+
+            <Box sx={{ width: "100%" }}>
+              <FormControlLabel
+                sx={{
+                  alignItems: "flex-start",
+                  width: "100%",
+                  m: 0,
+                }}
+                control={
+                  <Checkbox
+                    checked={Boolean(form.sms_consent)}
+                    onChange={(e) =>
+                      handleChange("sms_consent", e.target.checked)
+                    }
+                  />
+                }
+                label={
+                  <Typography variant="body2" sx={{ lineHeight: 1.45 }}>
+                    I agree to receive service-related text messages from
+                    Backyard Relief Pet Waste Solutions, including arrival
+                    notifications, service completion notifications, scheduling
+                    updates, gate access confirmations, and account-related
+                    communications. Message frequency varies. Message and data
+                    rates may apply. Reply HELP for help and STOP to opt out.
+                  </Typography>
+                }
+              />
+
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                display="block"
+                sx={{ mt: 1, mb: 2 }}
+              >
+                Privacy Policy: https://www.backyardrelief.com/home/privacy
+                <br />
+                Terms & Conditions:
+                https://www.backyardrelief.com/home/terms-of-service
+              </Typography>
+            </Box>
+
             <Button
               fullWidth
               variant="contained"
               size="large"
-              sx={{ mt: 3 }}
+              sx={{ mt: 1 }}
               disabled={!canContinue}
               onClick={handleContinue}
             >
@@ -524,4 +571,4 @@ function getRequiredServiceDayCount(planKey) {
       </Box>
     </Box>
   );
-}
+} 
