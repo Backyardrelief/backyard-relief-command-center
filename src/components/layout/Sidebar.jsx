@@ -24,7 +24,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 const drawerWidth = 260;
 
 const menuItems = [
-  { text: "Dashboard", icon: <DashboardIcon />, path: "/" },
+  { text: "Dashboard", icon: <DashboardIcon />, path: "/dashboard" },
   { text: "Customers", icon: <PeopleIcon />, path: "/customers" },
   { text: "Schedule", icon: <CalendarMonthIcon />, path: "/schedule" },
   { text: "Routes", icon: <RouteIcon />, path: "/routes" },
