@@ -48,7 +48,14 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         {/* MAIN DOMAIN / ROOT GOES TO PUBLIC SIGNUP */}
-        <Route path="/" element={<Navigate to="/signup" replace />} />
+        <Route
+  path="/"
+  element={
+    window.location.hostname.startsWith("crm.")
+      ? <Navigate to="/dashboard" replace />
+      : <Navigate to="/signup" replace />
+  }
+/>
 
         {/* PUBLIC CUSTOMER SIGNUP PAGE */}
         <Route path="/signup" element={<Signup />} />
