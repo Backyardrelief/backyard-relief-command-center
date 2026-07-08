@@ -47,12 +47,15 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* MAIN DOMAIN / ROOT GOES TO PUBLIC SIGNUP */}
+        <Route path="/" element={<Navigate to="/signup" replace />} />
+
         {/* PUBLIC CUSTOMER SIGNUP PAGE */}
         <Route path="/signup" element={<Signup />} />
 
-        {/* PROTECTED CRM PAGES */}
+        {/* PROTECTED CRM DASHBOARD */}
         <Route
-          path="/"
+          path="/dashboard"
           element={
             <ProtectedLayout>
               <Dashboard />
