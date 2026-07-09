@@ -32,30 +32,57 @@ export default function PlacesAutocomplete({
 
       const components = place.address_components || [];
 
-      const get = (type) =>
+      const getLong = (type) =>
         components.find((component) => component.types.includes(type))
           ?.long_name || "";
 
+      const getShort = (type) =>
+        components.find((component) => component.types.includes(type))
+          ?.short_name || "";
+
+      const streetNumber = getLong("street_number");
+      const route = getLong("route");
+
       const structured = {
-        address: place.formatted_address || "",
-        city: get("locality") || get("sublocality") || "",
-        state: get("administrative_area_level_1") || "",
-        zip: get("postal_code") || "",
+        address:
+          streetNumber && route
+            ? `${streetNumber} ${route}`
+            : place.formatted_address || "",
+        city:
+          getLong("locality") ||
+          getLong("sublocality") ||
+          getLong("postal_town") ||
+          "",
+        state: getShort("administrative_area_level_1") || "",
+        zip: getLong("postal_code") || "",
         lat: place.geometry?.location?.lat?.() ?? null,
         lng: place.geometry?.location?.lng?.() ?? null,
       };
 
+      onChange?.(structured);
       onPlaceSelected?.(structured);
     });
-  }, [google, loading, onPlaceSelected]);
+  }, [google, loading, onChange, onPlaceSelected]);
+
+  const handleInputChange = (event) => {
+    onChange?.({
+      address: event.target.value,
+      city: "",
+      state: "CO",
+      zip: "",
+      lat: null,
+      lng: null,
+    });
+  };
 
   return (
     <TextField
       inputRef={inputRef}
       fullWidth
+      required
       label={label}
       value={value || ""}
-      onChange={onChange}
+      onChange={handleInputChange}
       helperText={helperText}
       disabled={loading}
     />
