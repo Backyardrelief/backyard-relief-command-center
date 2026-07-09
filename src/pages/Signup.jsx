@@ -17,6 +17,7 @@ import {
 import { supabase } from "../lib/supabase";
 import { getServiceAreaResult } from "../lib/serviceArea";
 import { PLANS, ADD_ONS } from "../config/pricing";
+import PlacesAutocomplete from "../maps/components/PlacesAutocomplete";
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
@@ -39,6 +40,8 @@ export default function Signup() {
     city: "",
     state: "CO",
     zip: "",
+    lat: null,
+    lng: null,
     plan: "Standard",
     sms_consent: false,
   });
@@ -116,7 +119,7 @@ export default function Signup() {
     form.sms_consent &&
     !checkoutLoading;
 
-      const handleChange = (field, value) => {
+  const handleChange = (field, value) => {
     let nextValue = value;
 
     if (field === "zip") {
@@ -131,6 +134,20 @@ export default function Signup() {
     if (field === "plan") {
       setSelectedDays([]);
     }
+
+    setCheckoutError("");
+  };
+
+  const handleAddressSelected = (addressData) => {
+    setForm((current) => ({
+      ...current,
+      address: addressData.address || addressData.street || "",
+      city: addressData.city || "",
+      state: addressData.state || "CO",
+      zip: String(addressData.zip || "").slice(0, 5),
+      lat: addressData.lat ?? null,
+      lng: addressData.lng ?? null,
+    }));
 
     setCheckoutError("");
   };
@@ -296,13 +313,10 @@ export default function Signup() {
               />
             </Box>
 
-                        <Box sx={{ mt: 2 }}>
-              <TextField
-                fullWidth
-                required
-                label="Street Address"
+            <Box sx={{ mt: 2 }}>
+              <PlacesAutocomplete
                 value={form.address}
-                onChange={(e) => handleChange("address", e.target.value)}
+                onChange={handleAddressSelected}
               />
             </Box>
 
@@ -429,7 +443,7 @@ export default function Signup() {
           </CardContent>
         </Card>
 
-                <Card>
+        <Card>
           <CardContent>
             <Typography variant="h6" fontWeight="bold" gutterBottom>
               Signup Summary
@@ -571,4 +585,4 @@ export default function Signup() {
       </Box>
     </Box>
   );
-} 
+}
