@@ -10,6 +10,7 @@ import DashboardLayout from "./layout/DashboardLayout";
 import Dashboard from "./pages/Dashboard";
 import CustomersPage from "./pages/CustomersPage";
 import Signup from "./pages/Signup";
+import SignupSuccess from "./pages/SignupSuccess";
 import Schedule from "./pages/Schedule";
 import RoutesPage from "./pages/Routes";
 import DriverDashboard from "./pages/DriverDashboard";
@@ -59,6 +60,7 @@ export default function App() {
 
         {/* PUBLIC CUSTOMER SIGNUP PAGE */}
         <Route path="/signup" element={<Signup />} />
+        <Route path="/signup-success" element={<SignupSuccess />} />
 
         {/* PROTECTED CRM DASHBOARD */}
         <Route
