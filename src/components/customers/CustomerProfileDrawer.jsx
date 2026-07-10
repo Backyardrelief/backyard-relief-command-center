@@ -84,9 +84,13 @@ function DetailRow({ icon, label, value }) {
   return (
     <Stack
       direction="row"
-      spacing={1.5}
+      spacing={1.25}
       alignItems="flex-start"
-      sx={{ py: 0.75 }}
+      sx={{
+        py: 0.75,
+        width: "100%",
+        minWidth: 0,
+      }}
     >
       <Box
         sx={{
@@ -94,12 +98,18 @@ function DetailRow({ icon, label, value }) {
           display: "flex",
           alignItems: "center",
           mt: 0.25,
+          flexShrink: 0,
         }}
       >
         {icon}
       </Box>
 
-      <Box sx={{ minWidth: 0 }}>
+      <Box
+        sx={{
+          minWidth: 0,
+          flex: 1,
+        }}
+      >
         <Typography
           variant="caption"
           color="text.secondary"
@@ -112,6 +122,8 @@ function DetailRow({ icon, label, value }) {
           variant="body1"
           sx={{
             overflowWrap: "anywhere",
+            wordBreak: "break-word",
+            minWidth: 0,
           }}
         >
           {value || "Not available"}
@@ -126,7 +138,13 @@ function SectionTitle({ children }) {
     <Typography
       variant="h6"
       fontWeight="bold"
-      sx={{ mb: 1.25 }}
+      sx={{
+        mb: 1.25,
+        fontSize: {
+          xs: "1.05rem",
+          sm: "1.25rem",
+        },
+      }}
     >
       {children}
     </Typography>
@@ -183,25 +201,53 @@ export default function CustomerDetailsDrawer({
       anchor="right"
       open={open}
       onClose={onClose}
+      ModalProps={{
+        keepMounted: true,
+      }}
       PaperProps={{
         sx: {
           width: {
-            xs: "100%",
+            xs: "100vw",
             sm: 460,
           },
+          maxWidth: "100vw",
+          minWidth: 0,
+          boxSizing: "border-box",
+          overflowX: "hidden",
+        },
+      }}
+      sx={{
+        "& .MuiDrawer-paper": {
+          left: {
+            xs: 0,
+            sm: "auto",
+          },
+          right: 0,
+          margin: 0,
         },
       }}
     >
       <Box
         sx={{
-          minHeight: "100%",
+          width: "100%",
+          maxWidth: "100vw",
+          minHeight: "100dvh",
           display: "flex",
           flexDirection: "column",
+          overflowX: "hidden",
+          boxSizing: "border-box",
         }}
       >
         <Box
           sx={{
-            p: 3,
+            px: {
+              xs: 2,
+              sm: 3,
+            },
+            pt: {
+              xs: "max(16px, env(safe-area-inset-top))",
+              sm: 3,
+            },
             pb: 2,
             position: "sticky",
             top: 0,
@@ -209,16 +255,37 @@ export default function CustomerDetailsDrawer({
             zIndex: 2,
             borderBottom: 1,
             borderColor: "divider",
+            boxSizing: "border-box",
           }}
         >
           <Stack
             direction="row"
             justifyContent="space-between"
             alignItems="flex-start"
-            spacing={2}
+            spacing={1.5}
+            sx={{
+              width: "100%",
+              minWidth: 0,
+            }}
           >
-            <Box>
-              <Typography variant="h5" fontWeight="bold">
+            <Box
+              sx={{
+                minWidth: 0,
+                flex: 1,
+              }}
+            >
+              <Typography
+                variant="h5"
+                fontWeight="bold"
+                sx={{
+                  overflowWrap: "anywhere",
+                  lineHeight: 1.2,
+                  fontSize: {
+                    xs: "1.55rem",
+                    sm: "1.75rem",
+                  },
+                }}
+              >
                 {fullName}
               </Typography>
 
@@ -230,6 +297,11 @@ export default function CustomerDetailsDrawer({
             <IconButton
               onClick={onClose}
               aria-label="Close customer details"
+              sx={{
+                flexShrink: 0,
+                mt: -0.5,
+                mr: -0.5,
+              }}
             >
               <CloseIcon />
             </IconButton>
@@ -258,33 +330,63 @@ export default function CustomerDetailsDrawer({
               label={customer.service_plan || "No Plan"}
               variant="outlined"
               size="small"
+              sx={{
+                maxWidth: "100%",
+                "& .MuiChip-label": {
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                },
+              }}
             />
           </Stack>
         </Box>
 
         <Box
           sx={{
-            p: 3,
+            px: {
+              xs: 2,
+              sm: 3,
+            },
             pt: 2,
+            pb: {
+              xs: "max(24px, env(safe-area-inset-bottom))",
+              sm: 3,
+            },
             flexGrow: 1,
+            width: "100%",
+            minWidth: 0,
+            boxSizing: "border-box",
+            overflowX: "hidden",
           }}
         >
           <SectionTitle>Billing & Subscription</SectionTitle>
 
           <Box
             sx={{
-              p: 2,
+              p: {
+                xs: 1.5,
+                sm: 2,
+              },
               border: 1,
               borderColor: "divider",
               borderRadius: 2,
               bgcolor: "background.default",
+              width: "100%",
+              minWidth: 0,
+              boxSizing: "border-box",
             }}
           >
             <Stack
-              direction="row"
+              direction={{
+                xs: "column",
+                sm: "row",
+              }}
               justifyContent="space-between"
-              alignItems="center"
-              spacing={2}
+              alignItems={{
+                xs: "flex-start",
+                sm: "center",
+              }}
+              spacing={1}
               sx={{ mb: 1 }}
             >
               <Typography fontWeight="bold">
@@ -334,11 +436,18 @@ export default function CustomerDetailsDrawer({
           />
 
           <Stack
-            direction="row"
+            direction={{
+              xs: "column",
+              sm: "row",
+            }}
             spacing={1}
-            sx={{ mt: 1.5 }}
+            sx={{
+              mt: 1.5,
+              width: "100%",
+            }}
           >
             <Button
+              fullWidth
               variant="outlined"
               startIcon={<PhoneIcon />}
               href={
@@ -352,6 +461,7 @@ export default function CustomerDetailsDrawer({
             </Button>
 
             <Button
+              fullWidth
               variant="outlined"
               startIcon={<EmailIcon />}
               href={
@@ -467,7 +577,10 @@ export default function CustomerDetailsDrawer({
 
               <Typography
                 variant="body2"
-                sx={{ overflowWrap: "anywhere" }}
+                sx={{
+                  overflowWrap: "anywhere",
+                  wordBreak: "break-word",
+                }}
               >
                 {customer.stripe_customer_id}
               </Typography>
