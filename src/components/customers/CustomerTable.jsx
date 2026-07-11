@@ -162,7 +162,14 @@ export default function CustomerTable() {
 
       zone: form.zone || null,
       zone_id: form.zone_id || null,
+
       service_day: form.service_day || null,
+
+      service_days: Array.isArray(form.service_days)
+        ? form.service_days
+        : form.service_day
+          ? [form.service_day]
+          : [],
 
       dog_names: (form.dog_names || "").trim(),
       gate_code: (form.gate_code || "").trim(),
