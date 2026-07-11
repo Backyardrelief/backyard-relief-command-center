@@ -1,34 +1,31 @@
 import { useMemo, useState } from "react";
+
 import {
+  Alert,
   Box,
   Button,
   Card,
   CardContent,
   Checkbox,
+  Divider,
   FormControlLabel,
   MenuItem,
+  Stack,
   TextField,
   Typography,
-  Alert,
-  Stack,
-  Divider,
 } from "@mui/material";
 
 import { supabase } from "../lib/supabase";
-import { getServiceAreaResult } from "../lib/serviceArea";
+
+import {
+  getRequiredServiceDayCount,
+  getServiceAreaResult,
+  isPriorityPlan,
+  PRIORITY_SIGNUP_DAYS,
+} from "../lib/serviceArea";
+
 import { PLANS, ADD_ONS } from "../config/pricing";
 import PlacesAutocomplete from "../maps/components/PlacesAutocomplete";
-
-const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
-
-function isPriorityPlan(planKey) {
-  return planKey === "Premium" || planKey === "Elite";
-}
-
-function getRequiredServiceDayCount(planKey) {
-  if (planKey === "Elite") return 2;
-  return 1;
-}
 
 export default function Signup() {
   const [form, setForm] = useState({
@@ -49,9 +46,9 @@ export default function Signup() {
   const [selectedDays, setSelectedDays] = useState([]);
 
   const [addOns, setAddOns] = useState(
-    ADD_ONS.reduce((acc, item) => {
-      acc[item.key] = false;
-      return acc;
+    ADD_ONS.reduce((accumulator, item) => {
+      accumulator[item.key] = false;
+      return accumulator;
     }, {})
   );
 
@@ -61,6 +58,7 @@ export default function Signup() {
   const selectedPlan = PLANS.find((plan) => plan.key === form.plan);
 
   const priorityPlan = isPriorityPlan(form.plan);
+
   const requiredDayCount = getRequiredServiceDayCount(form.plan);
 
   const serviceAreaResult = useMemo(() => {
@@ -70,37 +68,55 @@ export default function Signup() {
       return null;
     }
 
-    return getServiceAreaResult(cleanZip, form.plan, selectedDays);
+    return getServiceAreaResult(
+      cleanZip,
+      form.plan,
+      selectedDays
+    );
   }, [form.zip, form.plan, selectedDays]);
 
   const displayScheduleDays = useMemo(() => {
-    if (!serviceAreaResult?.allowed) return [];
+    if (!serviceAreaResult?.allowed) {
+      return [];
+    }
 
     if (priorityPlan) {
       return selectedDays;
     }
 
     return serviceAreaResult.service_schedule?.days || [];
-  }, [serviceAreaResult, priorityPlan, selectedDays]);
+  }, [
+    serviceAreaResult,
+    priorityPlan,
+    selectedDays,
+  ]);
 
   const displayServiceSchedule = useMemo(() => {
-    if (!serviceAreaResult?.service_schedule) return null;
+    if (!serviceAreaResult?.service_schedule) {
+      return null;
+    }
 
     return {
       ...serviceAreaResult.service_schedule,
       days: displayScheduleDays,
       priority_scheduling: priorityPlan,
     };
-  }, [serviceAreaResult, displayScheduleDays, priorityPlan]);
+  }, [
+    serviceAreaResult,
+    displayScheduleDays,
+    priorityPlan,
+  ]);
 
   const addOnTotal = ADD_ONS.reduce((total, item) => {
     return total + (addOns[item.key] ? item.price : 0);
   }, 0);
 
-  const monthlyTotal = (selectedPlan?.price || 0) + addOnTotal;
+  const monthlyTotal =
+    (selectedPlan?.price || 0) + addOnTotal;
 
   const hasValidPriorityDays =
-    !priorityPlan || selectedDays.length === requiredDayCount;
+    !priorityPlan ||
+    selectedDays.length === requiredDayCount;
 
   const hasRequiredCustomerInfo =
     form.first_name.trim() &&
@@ -123,7 +139,9 @@ export default function Signup() {
     let nextValue = value;
 
     if (field === "zip") {
-      nextValue = value.replace(/\D/g, "").slice(0, 5);
+      nextValue = String(value)
+        .replace(/\D/g, "")
+        .slice(0, 5);
     }
 
     setForm((current) => ({
@@ -141,10 +159,15 @@ export default function Signup() {
   const handleAddressSelected = (addressData) => {
     setForm((current) => ({
       ...current,
-      address: addressData.address || addressData.street || "",
+      address:
+        addressData.address ||
+        addressData.street ||
+        "",
       city: addressData.city || "",
       state: addressData.state || "CO",
-      zip: String(addressData.zip || "").slice(0, 5),
+      zip: String(addressData.zip || "")
+        .replace(/\D/g, "")
+        .slice(0, 5),
       lat: addressData.lat ?? null,
       lng: addressData.lng ?? null,
     }));
@@ -164,7 +187,9 @@ export default function Signup() {
   const handleDayToggle = (day) => {
     setSelectedDays((current) => {
       if (current.includes(day)) {
-        return current.filter((item) => item !== day);
+        return current.filter(
+          (selectedDay) => selectedDay !== day
+        );
       }
 
       if (current.length >= requiredDayCount) {
@@ -178,37 +203,50 @@ export default function Signup() {
   };
 
   const handleContinue = async () => {
-    if (!canContinue) return;
+    if (!canContinue) {
+      return;
+    }
 
     setCheckoutLoading(true);
     setCheckoutError("");
 
     try {
-      const selectedAddOns = ADD_ONS.filter((item) => addOns[item.key]);
+      const selectedAddOns = ADD_ONS.filter(
+        (item) => addOns[item.key]
+      );
 
       const payload = {
         customer: {
           ...form,
-          zip: String(form.zip || "").trim().slice(0, 5),
+          zip: String(form.zip || "")
+            .trim()
+            .slice(0, 5),
           sms_consent: form.sms_consent,
           sms_consent_source: "website_signup",
-          sms_consent_timestamp: new Date().toISOString(),
+          sms_consent_timestamp:
+            new Date().toISOString(),
         },
+
         plan: selectedPlan,
+
         selected_add_ons: selectedAddOns,
+
         zone: serviceAreaResult.zone,
+
         service_schedule: displayServiceSchedule,
+
         monthly_total: monthlyTotal,
       };
 
       console.log("CHECKOUT PAYLOAD:", payload);
 
-      const { data, error } = await supabase.functions.invoke(
-        "create-checkout-session",
-        {
-          body: payload,
-        }
-      );
+      const { data, error } =
+        await supabase.functions.invoke(
+          "create-checkout-session",
+          {
+            body: payload,
+          }
+        );
 
       console.log("FUNCTION DATA:", data);
       console.log("FUNCTION ERROR:", error);
@@ -218,15 +256,18 @@ export default function Signup() {
       }
 
       if (!data?.url) {
-        throw new Error("Stripe checkout URL was not returned.");
+        throw new Error(
+          "Stripe checkout URL was not returned."
+        );
       }
 
       window.location.assign(data.url);
-    } catch (err) {
-      console.error("CHECKOUT FAILURE:", err);
+    } catch (error) {
+      console.error("CHECKOUT FAILURE:", error);
 
       setCheckoutError(
-        err?.message || "Unable to start checkout. Please try again."
+        error?.message ||
+          "Unable to start checkout. Please try again."
       );
 
       setCheckoutLoading(false);
@@ -236,20 +277,31 @@ export default function Signup() {
   return (
     <Box
       sx={{
-        p: { xs: 2, sm: 3 },
+        p: {
+          xs: 2,
+          sm: 3,
+        },
         maxWidth: 1100,
         mx: "auto",
         position: "relative",
         zIndex: 1,
       }}
     >
-      <Typography variant="h4" fontWeight="bold" gutterBottom>
+      <Typography
+        variant="h4"
+        fontWeight="bold"
+        gutterBottom
+      >
         Join The Relief Club
       </Typography>
 
-      <Typography variant="body1" sx={{ mb: 3 }}>
-        Enter your address, choose your plan, and we’ll confirm your service
-        area and assigned service day.
+      <Typography
+        variant="body1"
+        sx={{ mb: 3 }}
+      >
+        Enter your address, choose your plan, and
+        we’ll confirm your service area and assigned
+        service day.
       </Typography>
 
       <Box
@@ -264,7 +316,11 @@ export default function Signup() {
       >
         <Card>
           <CardContent>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
+            <Typography
+              variant="h6"
+              fontWeight="bold"
+              gutterBottom
+            >
               Customer Information
             </Typography>
 
@@ -283,7 +339,12 @@ export default function Signup() {
                 required
                 label="First Name"
                 value={form.first_name}
-                onChange={(e) => handleChange("first_name", e.target.value)}
+                onChange={(event) =>
+                  handleChange(
+                    "first_name",
+                    event.target.value
+                  )
+                }
               />
 
               <TextField
@@ -291,7 +352,12 @@ export default function Signup() {
                 required
                 label="Last Name"
                 value={form.last_name}
-                onChange={(e) => handleChange("last_name", e.target.value)}
+                onChange={(event) =>
+                  handleChange(
+                    "last_name",
+                    event.target.value
+                  )
+                }
               />
 
               <TextField
@@ -300,7 +366,12 @@ export default function Signup() {
                 label="Phone"
                 type="tel"
                 value={form.phone}
-                onChange={(e) => handleChange("phone", e.target.value)}
+                onChange={(event) =>
+                  handleChange(
+                    "phone",
+                    event.target.value
+                  )
+                }
               />
 
               <TextField
@@ -309,7 +380,12 @@ export default function Signup() {
                 label="Email"
                 type="email"
                 value={form.email}
-                onChange={(e) => handleChange("email", e.target.value)}
+                onChange={(event) =>
+                  handleChange(
+                    "email",
+                    event.target.value
+                  )
+                }
               />
             </Box>
 
@@ -336,7 +412,12 @@ export default function Signup() {
                 required
                 label="City"
                 value={form.city}
-                onChange={(e) => handleChange("city", e.target.value)}
+                onChange={(event) =>
+                  handleChange(
+                    "city",
+                    event.target.value
+                  )
+                }
               />
 
               <TextField
@@ -344,7 +425,12 @@ export default function Signup() {
                 required
                 label="State"
                 value={form.state}
-                onChange={(e) => handleChange("state", e.target.value)}
+                onChange={(event) =>
+                  handleChange(
+                    "state",
+                    event.target.value
+                  )
+                }
               />
 
               <TextField
@@ -356,13 +442,22 @@ export default function Signup() {
                   inputMode: "numeric",
                   maxLength: 5,
                 }}
-                onChange={(e) => handleChange("zip", e.target.value)}
+                onChange={(event) =>
+                  handleChange(
+                    "zip",
+                    event.target.value
+                  )
+                }
               />
             </Box>
 
             <Divider sx={{ my: 3 }} />
 
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
+            <Typography
+              variant="h6"
+              fontWeight="bold"
+              gutterBottom
+            >
               Choose Your Plan
             </Typography>
 
@@ -371,10 +466,18 @@ export default function Signup() {
               fullWidth
               label="Membership Plan"
               value={form.plan}
-              onChange={(e) => handleChange("plan", e.target.value)}
+              onChange={(event) =>
+                handleChange(
+                  "plan",
+                  event.target.value
+                )
+              }
             >
               {PLANS.map((plan) => (
-                <MenuItem key={plan.key} value={plan.key}>
+                <MenuItem
+                  key={plan.key}
+                  value={plan.key}
+                >
                   {plan.name} — ${plan.price}/month
                 </MenuItem>
               ))}
@@ -382,39 +485,62 @@ export default function Signup() {
 
             {priorityPlan && (
               <Box sx={{ mt: 3 }}>
-                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                <Typography
+                  variant="h6"
+                  fontWeight="bold"
+                  gutterBottom
+                >
                   Priority Scheduling
                 </Typography>
 
-                <Typography variant="body2" sx={{ mb: 1 }}>
+                <Typography
+                  variant="body2"
+                  sx={{ mb: 1 }}
+                >
                   {form.plan === "Premium"
-                    ? "Premium members may choose 1 preferred service day."
-                    : "Elite members may choose 2 preferred service days."}
+                    ? "Premium members may choose 1 preferred service day, including Saturday."
+                    : "Elite members may choose 2 preferred service days, including Saturday."}
                 </Typography>
 
                 <Stack>
-                  {WEEKDAYS.map((day) => (
-                    <FormControlLabel
-                      key={day}
-                      control={
-                        <Checkbox
-                          checked={selectedDays.includes(day)}
-                          onChange={() => handleDayToggle(day)}
-                          disabled={
-                            !selectedDays.includes(day) &&
-                            selectedDays.length >= requiredDayCount
-                          }
-                        />
-                      }
-                      label={day}
-                    />
-                  ))}
+                  {PRIORITY_SIGNUP_DAYS.map(
+                    (day) => (
+                      <FormControlLabel
+                        key={day}
+                        control={
+                          <Checkbox
+                            checked={selectedDays.includes(
+                              day
+                            )}
+                            onChange={() =>
+                              handleDayToggle(day)
+                            }
+                            disabled={
+                              !selectedDays.includes(
+                                day
+                              ) &&
+                              selectedDays.length >=
+                                requiredDayCount
+                            }
+                          />
+                        }
+                        label={day}
+                      />
+                    )
+                  )}
                 </Stack>
 
                 {!hasValidPriorityDays && (
-                  <Alert severity="info" sx={{ mt: 1 }}>
-                    Please select exactly {requiredDayCount} service{" "}
-                    {requiredDayCount === 1 ? "day" : "days"}.
+                  <Alert
+                    severity="info"
+                    sx={{ mt: 1 }}
+                  >
+                    Please select exactly{" "}
+                    {requiredDayCount} service{" "}
+                    {requiredDayCount === 1
+                      ? "day"
+                      : "days"}
+                    .
                   </Alert>
                 )}
               </Box>
@@ -422,7 +548,11 @@ export default function Signup() {
 
             <Divider sx={{ my: 3 }} />
 
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
+            <Typography
+              variant="h6"
+              fontWeight="bold"
+              gutterBottom
+            >
               Add-On Services
             </Typography>
 
@@ -432,8 +562,12 @@ export default function Signup() {
                   key={item.key}
                   control={
                     <Checkbox
-                      checked={Boolean(addOns[item.key])}
-                      onChange={() => handleAddOnChange(item.key)}
+                      checked={Boolean(
+                        addOns[item.key]
+                      )}
+                      onChange={() =>
+                        handleAddOnChange(item.key)
+                      }
                     />
                   }
                   label={`${item.label} — $${item.price}/month`}
@@ -445,13 +579,21 @@ export default function Signup() {
 
         <Card>
           <CardContent>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
+            <Typography
+              variant="h6"
+              fontWeight="bold"
+              gutterBottom
+            >
               Signup Summary
             </Typography>
 
             {serviceAreaResult && (
               <Alert
-                severity={serviceAreaResult.allowed ? "success" : "error"}
+                severity={
+                  serviceAreaResult.allowed
+                    ? "success"
+                    : "error"
+                }
                 sx={{ mb: 2 }}
               >
                 {serviceAreaResult.allowed
@@ -461,24 +603,34 @@ export default function Signup() {
             )}
 
             {checkoutError && (
-              <Alert severity="error" sx={{ mb: 2 }}>
+              <Alert
+                severity="error"
+                sx={{ mb: 2 }}
+              >
                 {checkoutError}
               </Alert>
             )}
 
             <Typography>
-              <strong>Plan:</strong> {selectedPlan?.name}
+              <strong>Plan:</strong>{" "}
+              {selectedPlan?.name}
             </Typography>
 
             <Typography>
-              <strong>Base Price:</strong> ${selectedPlan?.price}/month
+              <strong>Base Price:</strong> $
+              {selectedPlan?.price}/month
             </Typography>
 
             <Typography>
-              <strong>Add-Ons:</strong> ${addOnTotal}/month
+              <strong>Add-Ons:</strong> $
+              {addOnTotal}/month
             </Typography>
 
-            <Typography variant="h5" fontWeight="bold" sx={{ mt: 2 }}>
+            <Typography
+              variant="h5"
+              fontWeight="bold"
+              sx={{ mt: 2 }}
+            >
               Total: ${monthlyTotal}/month
             </Typography>
 
@@ -487,29 +639,45 @@ export default function Signup() {
                 <Divider sx={{ my: 2 }} />
 
                 <Typography>
-                  <strong>Zone:</strong> {serviceAreaResult.zone}
+                  <strong>Zone:</strong>{" "}
+                  {serviceAreaResult.zone}
                 </Typography>
 
-                <Typography variant="body2" sx={{ fontWeight: "bold", mt: 1 }}>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontWeight: "bold",
+                    mt: 1,
+                  }}
+                >
                   {displayScheduleDays.length > 1
                     ? "Your service days are:"
                     : "Your service day is:"}
                 </Typography>
 
-                <Typography variant="h6" fontWeight="bold">
+                <Typography
+                  variant="h6"
+                  fontWeight="bold"
+                >
                   {displayScheduleDays.length > 0
-                    ? displayScheduleDays.join(" & ")
+                    ? displayScheduleDays.join(
+                        " & "
+                      )
                     : "Select service day"}
                 </Typography>
 
                 <Typography>
                   <strong>Frequency:</strong>{" "}
-                  {displayServiceSchedule?.frequency || "Weekly"}
+                  {displayServiceSchedule?.frequency ||
+                    "Weekly"}
                 </Typography>
 
                 {priorityPlan && (
                   <Typography>
-                    <strong>Priority Scheduling:</strong> Included
+                    <strong>
+                      Priority Scheduling:
+                    </strong>{" "}
+                    Included
                   </Typography>
                 )}
               </>
@@ -526,20 +694,33 @@ export default function Signup() {
                 }}
                 control={
                   <Checkbox
-                    checked={Boolean(form.sms_consent)}
-                    onChange={(e) =>
-                      handleChange("sms_consent", e.target.checked)
+                    checked={Boolean(
+                      form.sms_consent
+                    )}
+                    onChange={(event) =>
+                      handleChange(
+                        "sms_consent",
+                        event.target.checked
+                      )
                     }
                   />
                 }
                 label={
-                  <Typography variant="body2" sx={{ lineHeight: 1.45 }}>
-                    I agree to receive service-related text messages from
-                    Backyard Relief Pet Waste Solutions, including arrival
-                    notifications, service completion notifications, scheduling
-                    updates, gate access confirmations, and account-related
-                    communications. Message frequency varies. Message and data
-                    rates may apply. Reply HELP for help and STOP to opt out.
+                  <Typography
+                    variant="body2"
+                    sx={{ lineHeight: 1.45 }}
+                  >
+                    I agree to receive
+                    service-related text messages from
+                    Backyard Relief Pet Waste
+                    Solutions, including arrival
+                    notifications, service completion
+                    notifications, scheduling updates,
+                    gate access confirmations, and
+                    account-related communications.
+                    Message frequency varies. Message
+                    and data rates may apply. Reply
+                    HELP for help and STOP to opt out.
                   </Typography>
                 }
               />
@@ -548,11 +729,16 @@ export default function Signup() {
                 variant="caption"
                 color="text.secondary"
                 display="block"
-                sx={{ mt: 1, mb: 2 }}
+                sx={{
+                  mt: 1,
+                  mb: 2,
+                  overflowWrap: "anywhere",
+                }}
               >
-                Privacy Policy: https://www.backyardrelief.com/home/privacy
+                Privacy Policy:
+                https://www.backyardrelief.com/home/privacy
                 <br />
-                Terms & Conditions:
+                Terms &amp; Conditions:
                 https://www.backyardrelief.com/home/terms-of-service
               </Typography>
             </Box>
@@ -565,21 +751,34 @@ export default function Signup() {
               disabled={!canContinue}
               onClick={handleContinue}
             >
-              {checkoutLoading ? "Opening Checkout..." : "Continue to Checkout"}
+              {checkoutLoading
+                ? "Opening Checkout..."
+                : "Continue to Checkout"}
             </Button>
 
             {!serviceAreaResult && (
-              <Typography variant="body2" sx={{ mt: 2 }}>
-                Enter your ZIP code to confirm service availability.
+              <Typography
+                variant="body2"
+                sx={{ mt: 2 }}
+              >
+                Enter your ZIP code to confirm
+                service availability.
               </Typography>
             )}
 
-            {serviceAreaResult?.allowed && !hasValidPriorityDays && (
-              <Typography variant="body2" sx={{ mt: 2 }}>
-                Select your preferred service{" "}
-                {requiredDayCount === 1 ? "day" : "days"} to continue.
-              </Typography>
-            )}
+            {serviceAreaResult?.allowed &&
+              !hasValidPriorityDays && (
+                <Typography
+                  variant="body2"
+                  sx={{ mt: 2 }}
+                >
+                  Select your preferred service{" "}
+                  {requiredDayCount === 1
+                    ? "day"
+                    : "days"}{" "}
+                  to continue.
+                </Typography>
+              )}
           </CardContent>
         </Card>
       </Box>
