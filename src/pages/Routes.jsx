@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+
 import {
   Box,
   Typography,
@@ -11,6 +12,7 @@ import {
 } from "@mui/material";
 
 import { supabase } from "../lib/supabase";
+import { INTERNAL_WORKING_DAYS } from "../lib/serviceArea";
 
 import {
   DndContext,
@@ -29,14 +31,16 @@ import {
 
 import SortableItem from "../components/dispatch/SortableItem";
 
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const DAYS = INTERNAL_WORKING_DAYS;
 
 function isActiveCustomer(customer) {
   return String(customer.status || "").toLowerCase() === "active";
 }
 
 function DayColumn({ day, children }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `day-${day}` });
+  const { setNodeRef, isOver } = useDroppable({
+    id: `day-${day}`,
+  });
 
   return (
     <div
@@ -45,7 +49,9 @@ function DayColumn({ day, children }) {
         minHeight: 420,
         borderRadius: 10,
         transition: "0.15s ease",
-        border: isOver ? "2px solid #1976d2" : "1px solid transparent",
+        border: isOver
+          ? "2px solid #1976d2"
+          : "1px solid transparent",
         background: isOver ? "#f5f9ff" : "transparent",
       }}
     >
@@ -65,32 +71,34 @@ export default function Routes() {
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 5 },
+      activationConstraint: {
+        distance: 5,
+      },
     })
   );
 
   useEffect(() => {
-  loadCustomers();
+    loadCustomers();
 
-  const channel = supabase
-    .channel("customers-routes-refresh")
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "customers",
-      },
-      () => {
-        loadCustomers();
-      }
-    )
-    .subscribe();
+    const channel = supabase
+      .channel("customers-routes-refresh")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "customers",
+        },
+        () => {
+          loadCustomers();
+        }
+      )
+      .subscribe();
 
-  return () => {
-    supabase.removeChannel(channel);
-  };
-}, []);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const loadCustomers = async () => {
     setLoading(true);
@@ -98,7 +106,9 @@ export default function Routes() {
     const { data, error } = await supabase
       .from("customers")
       .select("*")
-      .order("service_day", { ascending: true });
+      .order("service_day", {
+        ascending: true,
+      });
 
     if (error) {
       console.error("Routes customer fetch error:", error);
@@ -113,25 +123,40 @@ export default function Routes() {
   const activeCustomers = customers.filter(isActiveCustomer);
 
   const getCustomersForDay = (day) => {
-    const dayCustomers = activeCustomers.filter((c) => c.service_day === day);
+    const dayCustomers = activeCustomers.filter(
+      (customer) => customer.service_day === day
+    );
+
     const order = routeOrders[day];
 
-    if (!order?.length) return dayCustomers;
+    if (!order?.length) {
+      return dayCustomers;
+    }
 
     return [...dayCustomers].sort((a, b) => {
       const aIndex = order.indexOf(a.id);
       const bIndex = order.indexOf(b.id);
 
-      if (aIndex === -1 && bIndex === -1) return 0;
-      if (aIndex === -1) return 1;
-      if (bIndex === -1) return -1;
+      if (aIndex === -1 && bIndex === -1) {
+        return 0;
+      }
+
+      if (aIndex === -1) {
+        return 1;
+      }
+
+      if (bIndex === -1) {
+        return -1;
+      }
 
       return aIndex - bIndex;
     });
   };
 
   const getTargetDay = (overId) => {
-    if (!overId) return null;
+    if (!overId) {
+      return null;
+    }
 
     const id = String(overId);
 
@@ -139,7 +164,10 @@ export default function Routes() {
       return id.replace("day-", "");
     }
 
-    const overCustomer = activeCustomers.find((c) => c.id === overId);
+    const overCustomer = activeCustomers.find(
+      (customer) => customer.id === overId
+    );
+
     return overCustomer?.service_day || null;
   };
 
@@ -148,7 +176,9 @@ export default function Routes() {
 
     const { error } = await supabase
       .from("customers")
-      .update({ locked: updated })
+      .update({
+        locked: updated,
+      })
       .eq("id", customer.id);
 
     if (error) {
@@ -156,36 +186,60 @@ export default function Routes() {
       return;
     }
 
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === customer.id ? { ...c, locked: updated } : c))
+    setCustomers((previousCustomers) =>
+      previousCustomers.map((currentCustomer) =>
+        currentCustomer.id === customer.id
+          ? {
+              ...currentCustomer,
+              locked: updated,
+            }
+          : currentCustomer
+      )
     );
   };
 
   const rebuildDay = async (day) => {
     const dayCustomers = activeCustomers.filter(
-      (c) => c.service_day === day && !c.locked
+      (customer) =>
+        customer.service_day === day && !customer.locked
     );
 
-    const res = await fetch(
-      "https://ugtqsmrgwnyxzuwrolcz.functions.supabase.co/optimize-route",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customers: dayCustomers }),
+    try {
+      const response = await fetch(
+        "https://ugtqsmrgwnyxzuwrolcz.functions.supabase.co/optimize-route",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            customers: dayCustomers,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Route optimization failed with status ${response.status}`
+        );
       }
-    );
 
-    const data = await res.json();
-    const optimized = data.route || [];
+      const data = await response.json();
+      const optimized = data.route || [];
 
-    setRouteOrders((prev) => ({
-      ...prev,
-      [day]: optimized.map((c) => c.id),
-    }));
+      setRouteOrders((previousOrders) => ({
+        ...previousOrders,
+        [day]: optimized.map((customer) => customer.id),
+      }));
+    } catch (error) {
+      console.error(`Route optimization error for ${day}:`, error);
+    }
   };
 
   const scheduleOptimize = (day) => {
-    if (!day) return;
+    if (!day) {
+      return;
+    }
 
     clearTimeout(debounceRef.current[day]);
 
@@ -195,7 +249,10 @@ export default function Routes() {
   };
 
   const handleDragStart = (event) => {
-    const item = activeCustomers.find((c) => c.id === event.active.id);
+    const item = activeCustomers.find(
+      (customer) => customer.id === event.active.id
+    );
+
     setActiveItem(item || null);
   };
 
@@ -203,35 +260,62 @@ export default function Routes() {
     const { active, over } = event;
 
     setActiveItem(null);
-    if (!over) return;
 
-    const customer = activeCustomers.find((c) => c.id === active.id);
-    if (!customer || customer.locked) return;
+    if (!over) {
+      return;
+    }
+
+    const customer = activeCustomers.find(
+      (currentCustomer) =>
+        currentCustomer.id === active.id
+    );
+
+    if (!customer || customer.locked) {
+      return;
+    }
 
     const sourceDay = customer.service_day;
     const targetDay = getTargetDay(over.id);
 
-    if (!targetDay || !DAYS.includes(targetDay)) return;
-    if (sourceDay === targetDay) return;
+    if (!targetDay || !DAYS.includes(targetDay)) {
+      return;
+    }
 
-    setCustomers((prev) =>
-      prev.map((c) =>
-        c.id === customer.id ? { ...c, service_day: targetDay } : c
+    if (sourceDay === targetDay) {
+      return;
+    }
+
+    setCustomers((previousCustomers) =>
+      previousCustomers.map((currentCustomer) =>
+        currentCustomer.id === customer.id
+          ? {
+              ...currentCustomer,
+              service_day: targetDay,
+            }
+          : currentCustomer
       )
     );
 
-    setRouteOrders((prev) => ({
-      ...prev,
-      [sourceDay]: (prev[sourceDay] || []).filter((id) => id !== customer.id),
+    setRouteOrders((previousOrders) => ({
+      ...previousOrders,
+
+      [sourceDay]: (
+        previousOrders[sourceDay] || []
+      ).filter((id) => id !== customer.id),
+
       [targetDay]: [
-        ...(prev[targetDay] || []).filter((id) => id !== customer.id),
+        ...(previousOrders[targetDay] || []).filter(
+          (id) => id !== customer.id
+        ),
         customer.id,
       ],
     }));
 
     const { error } = await supabase
       .from("customers")
-      .update({ service_day: targetDay })
+      .update({
+        service_day: targetDay,
+      })
       .eq("id", customer.id);
 
     if (error) {
@@ -252,8 +336,15 @@ export default function Routes() {
         return (
           <Grid item xs={12} md={4} key={day}>
             <DayColumn day={day}>
-              <Paper sx={{ p: 3, minHeight: 420 }}>
-                <Typography variant="h6">{day}</Typography>
+              <Paper
+                sx={{
+                  p: 3,
+                  minHeight: 420,
+                }}
+              >
+                <Typography variant="h6">
+                  {day}
+                </Typography>
 
                 <Typography color="text.secondary">
                   Active Stops: {dayCustomers.length}
@@ -262,7 +353,10 @@ export default function Routes() {
                 <Button
                   variant="contained"
                   size="small"
-                  sx={{ mt: 1, mb: 2 }}
+                  sx={{
+                    mt: 1,
+                    mb: 2,
+                  }}
                   onClick={() => rebuildDay(day)}
                   disabled={loading}
                 >
@@ -272,7 +366,9 @@ export default function Routes() {
                 <Divider sx={{ my: 2 }} />
 
                 <SortableContext
-                  items={dayCustomers.map((c) => c.id)}
+                  items={dayCustomers.map(
+                    (customer) => customer.id
+                  )}
                   strategy={verticalListSortingStrategy}
                 >
                   {dayCustomers.map((customer) => (
@@ -286,11 +382,19 @@ export default function Routes() {
                       <Button
                         size="small"
                         sx={{ mt: 0.5 }}
-                        color={customer.locked ? "error" : "primary"}
+                        color={
+                          customer.locked
+                            ? "error"
+                            : "primary"
+                        }
                         variant="outlined"
-                        onClick={() => toggleLock(customer)}
+                        onClick={() =>
+                          toggleLock(customer)
+                        }
                       >
-                        {customer.locked ? "Locked" : "Unlocked"}
+                        {customer.locked
+                          ? "Locked"
+                          : "Unlocked"}
                       </Button>
                     </div>
                   ))}
@@ -314,13 +418,21 @@ export default function Routes() {
       const aDay = DAYS.indexOf(a.service_day);
       const bDay = DAYS.indexOf(b.service_day);
 
-      return (aDay === -1 ? 99 : aDay) - (bDay === -1 ? 99 : bDay);
+      return (
+        (aDay === -1 ? 99 : aDay) -
+        (bDay === -1 ? 99 : bDay)
+      );
     });
 
     return (
       <Grid container spacing={3}>
         <Grid item xs={12}>
-          <Paper sx={{ p: 3, minHeight: 500 }}>
+          <Paper
+            sx={{
+              p: 3,
+              minHeight: 500,
+            }}
+          >
             <Typography variant="h6">
               🚚 Driver Mode
             </Typography>
@@ -332,13 +444,21 @@ export default function Routes() {
             <Divider sx={{ my: 2 }} />
 
             <SortableContext
-              items={ordered.map((c) => c.id)}
+              items={ordered.map(
+                (customer) => customer.id
+              )}
               strategy={verticalListSortingStrategy}
             >
               {ordered.map((customer, index) => (
                 <div key={customer.id}>
-                  <Typography variant="caption" sx={{ opacity: 0.6 }}>
-                    Stop #{index + 1} • {customer.service_day || "Unassigned"}
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      opacity: 0.6,
+                    }}
+                  >
+                    Stop #{index + 1} •{" "}
+                    {customer.service_day || "Unassigned"}
                   </Typography>
 
                   <SortableItem
@@ -350,11 +470,19 @@ export default function Routes() {
                   <Button
                     size="small"
                     sx={{ mt: 0.5 }}
-                    color={customer.locked ? "error" : "primary"}
+                    color={
+                      customer.locked
+                        ? "error"
+                        : "primary"
+                    }
                     variant="outlined"
-                    onClick={() => toggleLock(customer)}
+                    onClick={() =>
+                      toggleLock(customer)
+                    }
                   >
-                    {customer.locked ? "Locked" : "Unlocked"}
+                    {customer.locked
+                      ? "Locked"
+                      : "Unlocked"}
                   </Button>
                 </div>
               ))}
@@ -372,19 +500,41 @@ export default function Routes() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" fontWeight="bold" sx={{ mb: 2 }}>
+    <Box
+      sx={{
+        p: {
+          xs: 2,
+          sm: 3,
+        },
+      }}
+    >
+      <Typography
+        variant="h4"
+        fontWeight="bold"
+        sx={{ mb: 2 }}
+      >
         Dispatch Board
       </Typography>
 
       <ToggleButtonGroup
         value={mode}
         exclusive
-        onChange={(_, v) => v && setMode(v)}
-        sx={{ mb: 3 }}
+        onChange={(_, value) => {
+          if (value) {
+            setMode(value);
+          }
+        }}
+        sx={{
+          mb: 3,
+        }}
       >
-        <ToggleButton value="days">Day Mode</ToggleButton>
-        <ToggleButton value="drivers">Driver Mode</ToggleButton>
+        <ToggleButton value="days">
+          Day Mode
+        </ToggleButton>
+
+        <ToggleButton value="drivers">
+          Driver Mode
+        </ToggleButton>
       </ToggleButtonGroup>
 
       <DndContext
@@ -393,12 +543,20 @@ export default function Routes() {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        {mode === "days" ? renderDays() : renderDriver()}
+        {mode === "days"
+          ? renderDays()
+          : renderDriver()}
 
         <DragOverlay>
           {activeItem ? (
-            <Paper sx={{ p: 1, maxWidth: 240 }}>
-              {activeItem.first_name} {activeItem.last_name}
+            <Paper
+              sx={{
+                p: 1,
+                maxWidth: 240,
+              }}
+            >
+              {activeItem.first_name}{" "}
+              {activeItem.last_name}
             </Paper>
           ) : null}
         </DragOverlay>

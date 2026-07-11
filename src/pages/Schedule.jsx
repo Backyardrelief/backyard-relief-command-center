@@ -1,21 +1,64 @@
 import { useEffect, useState } from "react";
-import { Box, Typography, Paper, Grid, Divider, Chip } from "@mui/material";
+
+import {
+  Box,
+  Typography,
+  Paper,
+  Grid,
+  Divider,
+  Chip,
+} from "@mui/material";
 
 import { supabase } from "../lib/supabase";
 import { PLAN_VALUES } from "../config/pricing";
+import { INTERNAL_WORKING_DAYS } from "../lib/serviceArea";
+
+const formatCurrency = (value) => {
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) {
+    return "$0.00";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(amount);
+};
 
 export default function Schedule() {
   const [customers, setCustomers] = useState([]);
 
   useEffect(() => {
     loadCustomers();
+
+    const channel = supabase
+      .channel("customers-schedule-refresh")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "customers",
+        },
+        () => {
+          loadCustomers();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const loadCustomers = async () => {
     const { data, error } = await supabase
       .from("customers")
       .select("*")
-      .order("created_at", { ascending: false });
+      .order("created_at", {
+        ascending: false,
+      });
 
     if (error) {
       console.error("Schedule fetch error:", error);
@@ -24,8 +67,6 @@ export default function Schedule() {
 
     setCustomers(data || []);
   };
-
-  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
   const getCustomerRevenue = (customer) => {
     return (
@@ -36,30 +77,64 @@ export default function Schedule() {
   };
 
   const isActiveCustomer = (customer) => {
-    return String(customer.status || "").toLowerCase() === "active";
+    return (
+      String(customer.status || "").toLowerCase() ===
+      "active"
+    );
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" fontWeight="bold" sx={{ mb: 3 }}>
+    <Box
+      sx={{
+        p: {
+          xs: 2,
+          sm: 3,
+        },
+      }}
+    >
+      <Typography
+        variant="h4"
+        fontWeight="bold"
+        sx={{ mb: 3 }}
+      >
         Weekly Schedule
       </Typography>
 
       <Grid container spacing={3}>
-        {days.map((day) => {
+        {INTERNAL_WORKING_DAYS.map((day) => {
           const dayCustomers = customers.filter(
             (customer) =>
-              customer.service_day === day && isActiveCustomer(customer)
+              customer.service_day === day &&
+              isActiveCustomer(customer)
           );
 
-          const revenue = dayCustomers.reduce((sum, customer) => {
-            return sum + getCustomerRevenue(customer);
-          }, 0);
+          const revenue = dayCustomers.reduce(
+            (sum, customer) =>
+              sum + getCustomerRevenue(customer),
+            0
+          );
 
           return (
-            <Grid item xs={12} md={6} key={day}>
-              <Paper sx={{ p: 3, borderRadius: 3 }}>
-                <Typography variant="h6" fontWeight="bold">
+            <Grid
+              item
+              xs={12}
+              md={6}
+              key={day}
+            >
+              <Paper
+                sx={{
+                  p: {
+                    xs: 2,
+                    sm: 3,
+                  },
+                  borderRadius: 3,
+                  height: "100%",
+                }}
+              >
+                <Typography
+                  variant="h6"
+                  fontWeight="bold"
+                >
                   {day}
                 </Typography>
 
@@ -67,8 +142,14 @@ export default function Schedule() {
                   Stops: {dayCustomers.length}
                 </Typography>
 
-                <Typography sx={{ fontWeight: "bold", mb: 2 }}>
-                  Revenue: ${revenue}
+                <Typography
+                  sx={{
+                    fontWeight: "bold",
+                    mb: 2,
+                  }}
+                >
+                  Monthly Revenue:{" "}
+                  {formatCurrency(revenue)}
                 </Typography>
 
                 <Divider sx={{ mb: 2 }} />
@@ -79,21 +160,37 @@ export default function Schedule() {
                     sx={{
                       mb: 2,
                       p: 1.5,
-                      background: "#f7f7f7",
+                      bgcolor: "grey.100",
                       borderRadius: 2,
                     }}
                   >
-                    <Typography fontWeight="bold">
-                      {customer.first_name} {customer.last_name}
+                    <Typography
+                      fontWeight="bold"
+                      sx={{
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {customer.first_name}{" "}
+                      {customer.last_name}
                     </Typography>
 
-                    <Typography variant="body2">{customer.address}</Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {customer.address || "No address"}
+                    </Typography>
 
                     <Typography variant="body2">
-                      {customer.service_plan}
+                      {customer.service_plan ||
+                        "No plan"}
                     </Typography>
 
-                    <StackSafeCustomerMeta customer={customer} />
+                    <StackSafeCustomerMeta
+                      customer={customer}
+                    />
                   </Box>
                 ))}
 
@@ -113,15 +210,27 @@ export default function Schedule() {
 
 function StackSafeCustomerMeta({ customer }) {
   return (
-    <Box sx={{ mt: 1, display: "flex", gap: 1, flexWrap: "wrap" }}>
+    <Box
+      sx={{
+        mt: 1,
+        display: "flex",
+        gap: 1,
+        flexWrap: "wrap",
+      }}
+    >
       <Chip
         size="small"
-        label={`Billing: ${customer.subscription_status || "Not connected"}`}
+        label={`Billing: ${
+          customer.subscription_status ||
+          "Not connected"
+        }`}
       />
 
       <Chip
         size="small"
-        label={`Monthly: $${Number(customer.monthly_amount) || 0}`}
+        label={`Monthly: ${formatCurrency(
+          customer.monthly_amount
+        )}`}
       />
     </Box>
   );
