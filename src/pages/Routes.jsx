@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   Box,
@@ -9,19 +9,19 @@ import {
   Button,
   ToggleButton,
   ToggleButtonGroup,
+  Chip,
 } from "@mui/material";
 
 import { supabase } from "../lib/supabase";
-import { INTERNAL_WORKING_DAYS } from "../lib/serviceArea";
 
 import {
   DndContext,
   closestCenter,
   DragOverlay,
-  useSensor,
-  useSensors,
   PointerSensor,
   useDroppable,
+  useSensor,
+  useSensors,
 } from "@dnd-kit/core";
 
 import {
@@ -31,11 +31,90 @@ import {
 
 import SortableItem from "../components/dispatch/SortableItem";
 
-const DAYS = INTERNAL_WORKING_DAYS;
+const DAYS = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
 
-function isActiveCustomer(customer) {
-  return String(customer.status || "").toLowerCase() === "active";
-}
+const createOccurrenceId = (customerId, day) =>
+  `${customerId}::${day}`;
+
+const parseOccurrenceId = (occurrenceId) => {
+  const [customerId, ...dayParts] =
+    String(occurrenceId).split("::");
+
+  return {
+    customerId,
+    day: dayParts.join("::"),
+  };
+};
+
+const normalizeDayName = (value) => {
+  const normalizedValue = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  return (
+    DAYS.find(
+      (day) => day.toLowerCase() === normalizedValue
+    ) || null
+  );
+};
+
+const normalizeServiceDays = (customer) => {
+  let savedDays = [];
+
+  if (Array.isArray(customer?.service_days)) {
+    savedDays = customer.service_days;
+  } else if (typeof customer?.service_days === "string") {
+    const cleanedValue = customer.service_days
+      .replace(/[{}[\]"]/g, "")
+      .trim();
+
+    savedDays = cleanedValue
+      ? cleanedValue.split(",")
+      : [];
+  }
+
+  const normalizedSavedDays = savedDays
+    .map(normalizeDayName)
+    .filter(Boolean);
+
+  if (normalizedSavedDays.length > 0) {
+    return [...new Set(normalizedSavedDays)].sort(
+      (a, b) => DAYS.indexOf(a) - DAYS.indexOf(b)
+    );
+  }
+
+  const legacyDay = normalizeDayName(
+    customer?.service_day
+  );
+
+  return legacyDay ? [legacyDay] : [];
+};
+
+const customerIsScheduledForDay = (customer, day) =>
+  normalizeServiceDays(customer).includes(day);
+
+const isActiveCustomer = (customer) => {
+  const status = String(customer?.status || "")
+    .trim()
+    .toLowerCase();
+
+  return status === "active";
+};
+
+const sortServiceDays = (days) =>
+  [...new Set(days)]
+    .map(normalizeDayName)
+    .filter(Boolean)
+    .sort(
+      (a, b) => DAYS.indexOf(a) - DAYS.indexOf(b)
+    );
 
 function DayColumn({ day, children }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -43,20 +122,25 @@ function DayColumn({ day, children }) {
   });
 
   return (
-    <div
+    <Box
       ref={setNodeRef}
-      style={{
+      sx={{
         minHeight: 420,
-        borderRadius: 10,
+        borderRadius: 2,
         transition: "0.15s ease",
         border: isOver
-          ? "2px solid #1976d2"
+          ? "2px solid"
           : "1px solid transparent",
-        background: isOver ? "#f5f9ff" : "transparent",
+        borderColor: isOver
+          ? "primary.main"
+          : "transparent",
+        bgcolor: isOver
+          ? "action.hover"
+          : "transparent",
       }}
     >
       {children}
-    </div>
+    </Box>
   );
 }
 
@@ -97,6 +181,12 @@ export default function Routes() {
 
     return () => {
       supabase.removeChannel(channel);
+
+      Object.values(debounceRef.current).forEach(
+        (timeoutId) => {
+          clearTimeout(timeoutId);
+        }
+      );
     };
   }, []);
 
@@ -106,12 +196,16 @@ export default function Routes() {
     const { data, error } = await supabase
       .from("customers")
       .select("*")
-      .order("service_day", {
+      .order("created_at", {
         ascending: true,
       });
 
     if (error) {
-      console.error("Routes customer fetch error:", error);
+      console.error(
+        "Routes customer fetch error:",
+        error
+      );
+
       setLoading(false);
       return;
     }
@@ -120,22 +214,24 @@ export default function Routes() {
     setLoading(false);
   };
 
-  const activeCustomers = customers.filter(isActiveCustomer);
+  const activeCustomers =
+    customers.filter(isActiveCustomer);
 
   const getCustomersForDay = (day) => {
     const dayCustomers = activeCustomers.filter(
-      (customer) => customer.service_day === day
+      (customer) =>
+        customerIsScheduledForDay(customer, day)
     );
 
-    const order = routeOrders[day];
+    const savedOrder = routeOrders[day];
 
-    if (!order?.length) {
+    if (!savedOrder?.length) {
       return dayCustomers;
     }
 
     return [...dayCustomers].sort((a, b) => {
-      const aIndex = order.indexOf(a.id);
-      const bIndex = order.indexOf(b.id);
+      const aIndex = savedOrder.indexOf(a.id);
+      const bIndex = savedOrder.indexOf(b.id);
 
       if (aIndex === -1 && bIndex === -1) {
         return 0;
@@ -161,23 +257,23 @@ export default function Routes() {
     const id = String(overId);
 
     if (id.startsWith("day-")) {
-      return id.replace("day-", "");
+      return normalizeDayName(
+        id.replace("day-", "")
+      );
     }
 
-    const overCustomer = activeCustomers.find(
-      (customer) => customer.id === overId
-    );
+    const occurrence = parseOccurrenceId(id);
 
-    return overCustomer?.service_day || null;
+    return normalizeDayName(occurrence.day);
   };
 
   const toggleLock = async (customer) => {
-    const updated = !customer.locked;
+    const updatedLockState = !customer.locked;
 
     const { error } = await supabase
       .from("customers")
       .update({
-        locked: updated,
+        locked: updatedLockState,
       })
       .eq("id", customer.id);
 
@@ -191,7 +287,7 @@ export default function Routes() {
         currentCustomer.id === customer.id
           ? {
               ...currentCustomer,
-              locked: updated,
+              locked: updatedLockState,
             }
           : currentCustomer
       )
@@ -201,8 +297,18 @@ export default function Routes() {
   const rebuildDay = async (day) => {
     const dayCustomers = activeCustomers.filter(
       (customer) =>
-        customer.service_day === day && !customer.locked
+        customerIsScheduledForDay(customer, day) &&
+        !customer.locked
     );
+
+    if (dayCustomers.length === 0) {
+      setRouteOrders((previousOrders) => ({
+        ...previousOrders,
+        [day]: [],
+      }));
+
+      return;
+    }
 
     try {
       const response = await fetch(
@@ -225,14 +331,19 @@ export default function Routes() {
       }
 
       const data = await response.json();
-      const optimized = data.route || [];
+      const optimizedCustomers = data.route || [];
 
       setRouteOrders((previousOrders) => ({
         ...previousOrders,
-        [day]: optimized.map((customer) => customer.id),
+        [day]: optimizedCustomers.map(
+          (customer) => customer.id
+        ),
       }));
     } catch (error) {
-      console.error(`Route optimization error for ${day}:`, error);
+      console.error(
+        `Route optimization error for ${day}:`,
+        error
+      );
     }
   };
 
@@ -249,11 +360,24 @@ export default function Routes() {
   };
 
   const handleDragStart = (event) => {
-    const item = activeCustomers.find(
-      (customer) => customer.id === event.active.id
+    const { customerId, day } = parseOccurrenceId(
+      event.active.id
     );
 
-    setActiveItem(item || null);
+    const customer = activeCustomers.find(
+      (currentCustomer) =>
+        String(currentCustomer.id) ===
+        String(customerId)
+    );
+
+    setActiveItem(
+      customer
+        ? {
+            customer,
+            day,
+          }
+        : null
+    );
   };
 
   const handleDragEnd = async (event) => {
@@ -265,19 +389,27 @@ export default function Routes() {
       return;
     }
 
+    const {
+      customerId,
+      day: sourceDayValue,
+    } = parseOccurrenceId(active.id);
+
+    const sourceDay =
+      normalizeDayName(sourceDayValue);
+
     const customer = activeCustomers.find(
       (currentCustomer) =>
-        currentCustomer.id === active.id
+        String(currentCustomer.id) ===
+        String(customerId)
     );
 
     if (!customer || customer.locked) {
       return;
     }
 
-    const sourceDay = customer.service_day;
     const targetDay = getTargetDay(over.id);
 
-    if (!targetDay || !DAYS.includes(targetDay)) {
+    if (!sourceDay || !targetDay) {
       return;
     }
 
@@ -285,12 +417,33 @@ export default function Routes() {
       return;
     }
 
+    const currentDays =
+      normalizeServiceDays(customer);
+
+    /*
+      Prevent a twice-weekly customer from being
+      assigned to the same route day twice.
+    */
+    if (currentDays.includes(targetDay)) {
+      return;
+    }
+
+    const updatedDays = sortServiceDays(
+      currentDays.map((day) =>
+        day === sourceDay ? targetDay : day
+      )
+    );
+
+    const updatedPrimaryDay =
+      updatedDays[0] || targetDay;
+
     setCustomers((previousCustomers) =>
       previousCustomers.map((currentCustomer) =>
         currentCustomer.id === customer.id
           ? {
               ...currentCustomer,
-              service_day: targetDay,
+              service_day: updatedPrimaryDay,
+              service_days: updatedDays,
             }
           : currentCustomer
       )
@@ -301,11 +454,17 @@ export default function Routes() {
 
       [sourceDay]: (
         previousOrders[sourceDay] || []
-      ).filter((id) => id !== customer.id),
+      ).filter(
+        (id) =>
+          String(id) !== String(customer.id)
+      ),
 
       [targetDay]: [
-        ...(previousOrders[targetDay] || []).filter(
-          (id) => id !== customer.id
+        ...(
+          previousOrders[targetDay] || []
+        ).filter(
+          (id) =>
+            String(id) !== String(customer.id)
         ),
         customer.id,
       ],
@@ -314,13 +473,18 @@ export default function Routes() {
     const { error } = await supabase
       .from("customers")
       .update({
-        service_day: targetDay,
+        service_day: updatedPrimaryDay,
+        service_days: updatedDays,
       })
       .eq("id", customer.id);
 
     if (error) {
-      console.error("Service day update error:", error);
-      loadCustomers();
+      console.error(
+        "Service-day update error:",
+        error
+      );
+
+      await loadCustomers();
       return;
     }
 
@@ -331,18 +495,30 @@ export default function Routes() {
   const renderDays = () => (
     <Grid container spacing={3}>
       {DAYS.map((day) => {
-        const dayCustomers = getCustomersForDay(day);
+        const dayCustomers =
+          getCustomersForDay(day);
 
         return (
-          <Grid item xs={12} md={4} key={day}>
+          <Grid
+            item
+            xs={12}
+            md={6}
+            lg={4}
+            key={day}
+          >
             <DayColumn day={day}>
               <Paper
                 sx={{
                   p: 3,
                   minHeight: 420,
+                  height: "100%",
+                  borderRadius: 3,
                 }}
               >
-                <Typography variant="h6">
+                <Typography
+                  variant="h6"
+                  fontWeight="bold"
+                >
                   {day}
                 </Typography>
 
@@ -363,46 +539,86 @@ export default function Routes() {
                   Optimize Route
                 </Button>
 
-                <Divider sx={{ my: 2 }} />
+                <Divider sx={{ mb: 2 }} />
 
                 <SortableContext
                   items={dayCustomers.map(
-                    (customer) => customer.id
+                    (customer) =>
+                      createOccurrenceId(
+                        customer.id,
+                        day
+                      )
                   )}
-                  strategy={verticalListSortingStrategy}
+                  strategy={
+                    verticalListSortingStrategy
+                  }
                 >
-                  {dayCustomers.map((customer) => (
-                    <div key={customer.id}>
-                      <SortableItem
-                        id={customer.id}
-                        customer={customer}
-                        disabled={customer.locked}
-                      />
+                  {dayCustomers.map((customer) => {
+                    const serviceDays =
+                      normalizeServiceDays(customer);
 
-                      <Button
-                        size="small"
-                        sx={{ mt: 0.5 }}
-                        color={
-                          customer.locked
-                            ? "error"
-                            : "primary"
-                        }
-                        variant="outlined"
-                        onClick={() =>
-                          toggleLock(customer)
-                        }
+                    const occurrenceId =
+                      createOccurrenceId(
+                        customer.id,
+                        day
+                      );
+
+                    return (
+                      <Box
+                        key={occurrenceId}
+                        sx={{ mb: 2 }}
                       >
-                        {customer.locked
-                          ? "Locked"
-                          : "Unlocked"}
-                      </Button>
-                    </div>
-                  ))}
+                        {serviceDays.length > 1 && (
+                          <Chip
+                            size="small"
+                            color="secondary"
+                            label={`Twice weekly: ${serviceDays.join(
+                              " & "
+                            )}`}
+                            sx={{ mb: 0.75 }}
+                          />
+                        )}
+
+                        <SortableItem
+                          id={occurrenceId}
+                          customer={customer}
+                          disabled={
+                            Boolean(customer.locked)
+                          }
+                        />
+
+                        <Button
+                          size="small"
+                          sx={{ mt: 0.5 }}
+                          color={
+                            customer.locked
+                              ? "error"
+                              : "primary"
+                          }
+                          variant="outlined"
+                          onClick={() =>
+                            toggleLock(customer)
+                          }
+                        >
+                          {customer.locked
+                            ? "Locked"
+                            : "Unlocked"}
+                        </Button>
+                      </Box>
+                    );
+                  })}
                 </SortableContext>
 
-                {dayCustomers.length === 0 && (
+                {!loading &&
+                  dayCustomers.length === 0 && (
+                    <Typography color="text.secondary">
+                      No active customers scheduled
+                    </Typography>
+                  )}
+
+                {loading && (
                   <Typography color="text.secondary">
-                    Drop active customers here
+                    Loading routes…
                   </Typography>
                 )}
               </Paper>
@@ -414,15 +630,23 @@ export default function Routes() {
   );
 
   const renderDriver = () => {
-    const ordered = [...activeCustomers].sort((a, b) => {
-      const aDay = DAYS.indexOf(a.service_day);
-      const bDay = DAYS.indexOf(b.service_day);
+    const occurrences = activeCustomers.flatMap(
+      (customer) =>
+        normalizeServiceDays(customer).map((day) => ({
+          occurrenceId: createOccurrenceId(
+            customer.id,
+            day
+          ),
+          customer,
+          day,
+        }))
+    );
 
-      return (
-        (aDay === -1 ? 99 : aDay) -
-        (bDay === -1 ? 99 : bDay)
-      );
-    });
+    const orderedOccurrences = occurrences.sort(
+      (a, b) =>
+        DAYS.indexOf(a.day) -
+        DAYS.indexOf(b.day)
+    );
 
     return (
       <Grid container spacing={3}>
@@ -431,66 +655,92 @@ export default function Routes() {
             sx={{
               p: 3,
               minHeight: 500,
+              borderRadius: 3,
             }}
           >
-            <Typography variant="h6">
+            <Typography
+              variant="h6"
+              fontWeight="bold"
+            >
               🚚 Driver Mode
             </Typography>
 
             <Typography color="text.secondary">
-              Active Stops: {ordered.length}
+              Scheduled Stops:{" "}
+              {orderedOccurrences.length}
             </Typography>
 
             <Divider sx={{ my: 2 }} />
 
             <SortableContext
-              items={ordered.map(
-                (customer) => customer.id
+              items={orderedOccurrences.map(
+                (occurrence) =>
+                  occurrence.occurrenceId
               )}
-              strategy={verticalListSortingStrategy}
+              strategy={
+                verticalListSortingStrategy
+              }
             >
-              {ordered.map((customer, index) => (
-                <div key={customer.id}>
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      opacity: 0.6,
-                    }}
+              {orderedOccurrences.map(
+                (
+                  {
+                    occurrenceId,
+                    customer,
+                    day,
+                  },
+                  index
+                ) => (
+                  <Box
+                    key={occurrenceId}
+                    sx={{ mb: 2 }}
                   >
-                    Stop #{index + 1} •{" "}
-                    {customer.service_day || "Unassigned"}
-                  </Typography>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                    >
+                      Stop #{index + 1} • {day}
+                    </Typography>
 
-                  <SortableItem
-                    id={customer.id}
-                    customer={customer}
-                    disabled={customer.locked}
-                  />
+                    <SortableItem
+                      id={occurrenceId}
+                      customer={customer}
+                      disabled={
+                        Boolean(customer.locked)
+                      }
+                    />
 
-                  <Button
-                    size="small"
-                    sx={{ mt: 0.5 }}
-                    color={
-                      customer.locked
-                        ? "error"
-                        : "primary"
-                    }
-                    variant="outlined"
-                    onClick={() =>
-                      toggleLock(customer)
-                    }
-                  >
-                    {customer.locked
-                      ? "Locked"
-                      : "Unlocked"}
-                  </Button>
-                </div>
-              ))}
+                    <Button
+                      size="small"
+                      sx={{ mt: 0.5 }}
+                      color={
+                        customer.locked
+                          ? "error"
+                          : "primary"
+                      }
+                      variant="outlined"
+                      onClick={() =>
+                        toggleLock(customer)
+                      }
+                    >
+                      {customer.locked
+                        ? "Locked"
+                        : "Unlocked"}
+                    </Button>
+                  </Box>
+                )
+              )}
             </SortableContext>
 
-            {ordered.length === 0 && (
+            {!loading &&
+              orderedOccurrences.length === 0 && (
+                <Typography color="text.secondary">
+                  No active scheduled customers
+                </Typography>
+              )}
+
+            {loading && (
               <Typography color="text.secondary">
-                No active customers
+                Loading driver schedule…
               </Typography>
             )}
           </Paper>
@@ -519,13 +769,14 @@ export default function Routes() {
       <ToggleButtonGroup
         value={mode}
         exclusive
-        onChange={(_, value) => {
+        onChange={(_event, value) => {
           if (value) {
             setMode(value);
           }
         }}
         sx={{
           mb: 3,
+          flexWrap: "wrap",
         }}
       >
         <ToggleButton value="days">
@@ -551,12 +802,21 @@ export default function Routes() {
           {activeItem ? (
             <Paper
               sx={{
-                p: 1,
-                maxWidth: 240,
+                p: 1.5,
+                maxWidth: 260,
               }}
             >
-              {activeItem.first_name}{" "}
-              {activeItem.last_name}
+              <Typography fontWeight="bold">
+                {activeItem.customer.first_name}{" "}
+                {activeItem.customer.last_name}
+              </Typography>
+
+              <Typography
+                variant="caption"
+                color="text.secondary"
+              >
+                {activeItem.day}
+              </Typography>
             </Paper>
           ) : null}
         </DragOverlay>
