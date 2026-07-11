@@ -30,6 +30,31 @@ const normalizeCustomer = (customer) => ({
   name: `${customer.first_name ?? ""} ${customer.last_name ?? ""}`.trim(),
 });
 
+const normalizeServiceDays = (customer) => {
+  if (
+    Array.isArray(customer?.service_days) &&
+    customer.service_days.length > 0
+  ) {
+    return [...new Set(customer.service_days)].filter(Boolean);
+  }
+
+  if (customer?.service_day) {
+    return [customer.service_day];
+  }
+
+  return [];
+};
+
+const formatServiceDays = (customer) => {
+  const serviceDays = normalizeServiceDays(customer);
+
+  if (serviceDays.length === 0) {
+    return "Unassigned";
+  }
+
+  return serviceDays.join(" & ");
+};
+
 const formatCurrency = (value) => {
   const amount = Number(value);
 
@@ -145,38 +170,82 @@ export default function CustomerTable() {
   };
 
   const handleSave = async (form) => {
+    const serviceDays =
+      Array.isArray(form.service_days) &&
+      form.service_days.length > 0
+        ? [...new Set(form.service_days)].filter(Boolean)
+        : form.service_day
+          ? [form.service_day]
+          : [];
+
+    const primaryServiceDay =
+      form.service_day || serviceDays[0] || null;
+
     const payload = {
       first_name: (form.first_name || "").trim(),
       last_name: (form.last_name || "").trim(),
       phone: (form.phone || "").trim(),
       email: (form.email || "").trim(),
-      service_plan: form.service_plan,
+
+      service_plan: form.service_plan || "Relief Plus",
+
+      /*
+        Manually created customers need to be active so they
+        appear immediately on Routes and Schedule.
+
+        Existing customers keep their current status when edited.
+      */
+      status:
+        form.status ||
+        selectedCustomer?.status ||
+        "active",
 
       address: (form.address || "").trim(),
       city: (form.city || "").trim(),
       state: (form.state || "").trim(),
       zip: (form.zip || "").trim(),
 
-      lat: form.lat == null ? null : Number(form.lat),
-      lng: form.lng == null ? null : Number(form.lng),
+      lat:
+        form.lat == null || form.lat === ""
+          ? null
+          : Number(form.lat),
+
+      lng:
+        form.lng == null || form.lng === ""
+          ? null
+          : Number(form.lng),
 
       zone: form.zone || null,
       zone_id: form.zone_id || null,
 
-      service_day: form.service_day || null,
-
-      service_days: Array.isArray(form.service_days)
-        ? form.service_days
-        : form.service_day
-          ? [form.service_day]
-          : [],
+      service_day: primaryServiceDay,
+      service_days: serviceDays,
 
       dog_names: (form.dog_names || "").trim(),
       gate_code: (form.gate_code || "").trim(),
+
       access_instructions: (
         form.access_instructions || ""
       ).trim(),
+
       notes: (form.notes || "").trim(),
+
+      deodorizer_enabled: Boolean(
+        form.deodorizer_enabled
+      ),
+
+      deodorizer_frequency:
+        form.deodorizer_enabled
+          ? form.deodorizer_frequency || "monthly"
+          : null,
+
+      last_deodorizer_date:
+        form.last_deodorizer_date || null,
+
+      next_deodorizer_date:
+        form.deodorizer_enabled
+          ? form.next_deodorizer_date || null
+          : null,
     };
 
     if (selectedCustomer) {
@@ -189,7 +258,7 @@ export default function CustomerTable() {
 
       if (error) {
         console.error("Update error:", error);
-        return;
+        throw error;
       }
 
       const normalized = normalizeCustomer(updated);
@@ -203,6 +272,7 @@ export default function CustomerTable() {
       );
 
       setDrawerCustomer(normalized);
+
       eventBus.emit("customersUpdated", updated);
     } else {
       const { data: inserted, error } = await supabase
@@ -213,7 +283,7 @@ export default function CustomerTable() {
 
       if (error) {
         console.error("Create error:", error);
-        return;
+        throw error;
       }
 
       const normalized = normalizeCustomer(inserted);
@@ -256,6 +326,7 @@ export default function CustomerTable() {
     }
 
     setDeleteTarget(null);
+
     eventBus.emit("customersUpdated");
   };
 
@@ -285,11 +356,13 @@ export default function CustomerTable() {
       minWidth: 140,
     },
     {
-      field: "service_day",
-      headerName: "Day",
-      flex: 1,
-      minWidth: 110,
-      valueGetter: (value) => value || "Unassigned",
+      field: "service_days",
+      headerName: "Days",
+      flex: 1.2,
+      minWidth: 170,
+      sortable: false,
+      valueGetter: (_value, row) =>
+        formatServiceDays(row),
     },
     {
       field: "zone",
@@ -546,10 +619,21 @@ export default function CustomerTable() {
           </Typography>
 
           <Typography sx={{ mb: 2 }}>
-            {drawerCustomer?.service_day || "Unassigned"}
+            {formatServiceDays(drawerCustomer)}
             {" · "}
             {drawerCustomer?.zone || "Unassigned"}
           </Typography>
+
+          {normalizeServiceDays(drawerCustomer).length > 1 && (
+            <Chip
+              size="small"
+              color="secondary"
+              label={`Twice weekly: ${formatServiceDays(
+                drawerCustomer
+              )}`}
+              sx={{ mb: 2 }}
+            />
+          )}
 
           <Divider sx={{ my: 2 }} />
 
