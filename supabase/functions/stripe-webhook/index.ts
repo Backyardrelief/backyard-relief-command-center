@@ -1,29 +1,181 @@
 import Stripe from "npm:stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
+const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
+const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
+const supabaseUrl = Deno.env.get("SUPABASE_URL");
+const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+if (
+  !stripeSecretKey ||
+  !webhookSecret ||
+  !supabaseUrl ||
+  !serviceRoleKey
+) {
+  throw new Error(
+    "Missing one or more required Stripe or Supabase environment variables."
+  );
+}
+
+const stripe = new Stripe(stripeSecretKey, {
   apiVersion: "2025-06-30.basil",
 });
 
 const supabase = createClient(
-  Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  supabaseUrl,
+  serviceRoleKey
 );
+
+function getSubscriptionId(
+  value:
+    | string
+    | Stripe.Subscription
+    | null
+    | undefined
+) {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return value?.id || "";
+}
+
+function getCustomerId(
+  value:
+    | string
+    | Stripe.Customer
+    | Stripe.DeletedCustomer
+    | null
+    | undefined
+) {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return value?.id || "";
+}
+
+function getMonthlySubscriptionAmount(
+  subscription: Stripe.Subscription
+) {
+  return subscription.items.data.reduce(
+    (total, item) => {
+      const unitAmount =
+        Number(item.price.unit_amount || 0) / 100;
+
+      const quantity = Number(item.quantity || 1);
+
+      return total + unitAmount * quantity;
+    },
+    0
+  );
+}
+
+function getNextBillingDate(
+  subscription: Stripe.Subscription
+) {
+  const periodEnd = Number(
+    subscription.current_period_end || 0
+  );
+
+  if (!periodEnd) {
+    return null;
+  }
+
+  return new Date(
+    periodEnd * 1000
+  ).toISOString();
+}
+
+function getCustomerOperationalStatus(
+  subscriptionStatus: Stripe.Subscription.Status
+) {
+  if (
+    subscriptionStatus === "active" ||
+    subscriptionStatus === "trialing"
+  ) {
+    return "Active";
+  }
+
+  if (
+    subscriptionStatus === "past_due" ||
+    subscriptionStatus === "unpaid"
+  ) {
+    return "Payment Failed";
+  }
+
+  if (subscriptionStatus === "canceled") {
+    return "Cancelled";
+  }
+
+  return "On Hold";
+}
+
+async function hasProcessedEvent(eventId: string) {
+  const { data, error } = await supabase
+    .from("stripe_webhook_events")
+    .select("event_id")
+    .eq("event_id", eventId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return Boolean(data);
+}
+
+async function markEventProcessed(
+  eventId: string,
+  eventType: string
+) {
+  const { error } = await supabase
+    .from("stripe_webhook_events")
+    .insert({
+      event_id: eventId,
+      event_type: eventType,
+    });
+
+  if (error) {
+    throw error;
+  }
+}
 
 async function updateCustomerBySubscription(
   subscriptionId: string,
   updates: Record<string, unknown>
 ) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("customers")
     .update(updates)
-    .eq("stripe_subscription_id", subscriptionId);
+    .eq("stripe_subscription_id", subscriptionId)
+    .select("id");
 
-  if (error) throw error;
+  if (error) {
+    throw error;
+  }
+
+  if (!data?.length) {
+    console.warn(
+      `No customer found for Stripe subscription ${subscriptionId}.`
+    );
+  }
 }
 
-async function geocodeAddress({ address, city, state, zip }) {
-  const apiKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
+async function geocodeAddress({
+  address,
+  city,
+  state,
+  zip,
+}: {
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
+}) {
+  const apiKey = Deno.env.get(
+    "GOOGLE_MAPS_API_KEY"
+  );
 
   if (!apiKey) {
     return {
@@ -35,17 +187,34 @@ async function geocodeAddress({ address, city, state, zip }) {
   const fullAddress = `${address}, ${city}, ${state} ${zip}`;
 
   const url =
-    `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
-      fullAddress
-    )}&key=${apiKey}`;
+    "https://maps.googleapis.com/maps/api/geocode/json" +
+    `?address=${encodeURIComponent(fullAddress)}` +
+    `&key=${apiKey}`;
 
   const response = await fetch(url);
+
+  if (!response.ok) {
+    console.error(
+      `Google geocoding failed with status ${response.status}.`
+    );
+
+    return {
+      lat: null,
+      lng: null,
+    };
+  }
+
   const data = await response.json();
 
   if (
     data.status !== "OK" ||
     !data.results?.[0]?.geometry?.location
   ) {
+    console.error(
+      "Google geocoding did not return a usable location:",
+      data.status
+    );
+
     return {
       lat: null,
       lng: null,
@@ -59,12 +228,23 @@ async function geocodeAddress({ address, city, state, zip }) {
 }
 
 Deno.serve(async (req) => {
-  const signature = req.headers.get("stripe-signature");
+  if (req.method !== "POST") {
+    return new Response("Method not allowed", {
+      status: 405,
+    });
+  }
+
+  const signature = req.headers.get(
+    "stripe-signature"
+  );
 
   if (!signature) {
-    return new Response("Missing Stripe signature", {
-      status: 400,
-    });
+    return new Response(
+      "Missing Stripe signature",
+      {
+        status: 400,
+      }
+    );
   }
 
   const body = await req.text();
@@ -72,15 +252,16 @@ Deno.serve(async (req) => {
   let event: Stripe.Event;
 
   try {
-    event = await stripe.webhooks.constructEventAsync(
-      body,
-      signature,
-      Deno.env.get("STRIPE_WEBHOOK_SECRET")!
-    );
-  } catch (err) {
+    event =
+      await stripe.webhooks.constructEventAsync(
+        body,
+        signature,
+        webhookSecret
+      );
+  } catch (error) {
     console.error(
       "Webhook signature verification failed:",
-      err
+      error
     );
 
     return new Response("Invalid signature", {
@@ -89,30 +270,76 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // =========================================
-    // CHECKOUT COMPLETED
-    // =========================================
+    if (await hasProcessedEvent(event.id)) {
+      console.log(
+        `Stripe event ${event.id} was already processed.`
+      );
 
-    if (event.type === "checkout.session.completed") {
+      return new Response(
+        JSON.stringify({
+          received: true,
+          duplicate: true,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+    }
+
+    if (
+      event.type ===
+      "checkout.session.completed"
+    ) {
       const session =
         event.data.object as Stripe.Checkout.Session;
 
       const metadata = session.metadata || {};
 
-      let parsedServiceDays: string[] = [];
+      let serviceDays: string[] = [];
 
       try {
-        parsedServiceDays = JSON.parse(
+        const parsed = JSON.parse(
           metadata.service_days || "[]"
         );
+
+        serviceDays = Array.isArray(parsed)
+          ? parsed.filter(Boolean)
+          : [];
       } catch {
-        parsedServiceDays = [];
+        serviceDays = [];
       }
 
-      const serviceDay =
+      if (
+        serviceDays.length === 0 &&
+        metadata.service_day
+      ) {
+        serviceDays = [metadata.service_day];
+      }
+
+      const primaryServiceDay =
+        serviceDays[0] ||
         metadata.service_day ||
-        parsedServiceDays[0] ||
         "";
+
+      const subscriptionId =
+        getSubscriptionId(session.subscription);
+
+      const stripeCustomerId =
+        getCustomerId(session.customer);
+
+      let subscription:
+        | Stripe.Subscription
+        | null = null;
+
+      if (subscriptionId) {
+        subscription =
+          await stripe.subscriptions.retrieve(
+            subscriptionId
+          );
+      }
 
       const geocode = await geocodeAddress({
         address: metadata.address || "",
@@ -121,12 +348,24 @@ Deno.serve(async (req) => {
         zip: metadata.zip || "",
       });
 
+      const monthlyAmount = subscription
+        ? getMonthlySubscriptionAmount(
+            subscription
+          )
+        : Number(metadata.monthly_total || 0);
+
+      const subscriptionStatus =
+        subscription?.status || "active";
+
       const customerData = {
-        first_name: metadata.first_name || "",
-        last_name: metadata.last_name || "",
+        first_name:
+          metadata.first_name || "",
+        last_name:
+          metadata.last_name || "",
         phone: metadata.phone || "",
         email:
           metadata.email ||
+          session.customer_details?.email ||
           session.customer_email ||
           "",
 
@@ -138,31 +377,37 @@ Deno.serve(async (req) => {
         lat: geocode.lat,
         lng: geocode.lng,
 
-        service_plan: metadata.plan_name || "",
+        service_plan:
+          metadata.plan_name || "",
         service_frequency:
           metadata.service_frequency || "",
-        service_day: serviceDay,
+
+        service_day: primaryServiceDay,
+        service_days: serviceDays,
+
         zone: metadata.zone || "",
 
-        status: "Active",
+        status: getCustomerOperationalStatus(
+          subscriptionStatus
+        ),
+
         source: "stripe",
         signup_source: "website",
 
         stripe_customer_id:
-          typeof session.customer === "string"
-            ? session.customer
-            : "",
+          stripeCustomerId,
 
         stripe_subscription_id:
-          typeof session.subscription === "string"
-            ? session.subscription
-            : "",
+          subscriptionId,
 
-        subscription_status: "active",
+        subscription_status:
+          subscriptionStatus,
 
-        monthly_amount: Number(
-          metadata.monthly_total || 0
-        ),
+        monthly_amount: monthlyAmount,
+
+        next_billing_date: subscription
+          ? getNextBillingDate(subscription)
+          : null,
 
         lifetime_revenue: 0,
 
@@ -173,84 +418,97 @@ Deno.serve(async (req) => {
 
       const { error } = await supabase
         .from("customers")
-        .insert(customerData);
+        .upsert(customerData, {
+          onConflict:
+            "stripe_subscription_id",
+        });
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
       console.log(
-        "Customer created from Stripe checkout."
+        "Customer created or updated from Stripe checkout."
       );
     }
-
-    // =========================================
-    // INVOICE PAID
-    // =========================================
 
     if (event.type === "invoice.paid") {
       const invoice =
         event.data.object as Stripe.Invoice;
 
       const subscriptionId =
-        typeof invoice.subscription === "string"
-          ? invoice.subscription
-          : "";
+        getSubscriptionId(
+          invoice.subscription
+        );
 
       if (subscriptionId) {
-        const { data: customer } = await supabase
-          .from("customers")
-          .select("lifetime_revenue")
-          .eq(
-            "stripe_subscription_id",
-            subscriptionId
-          )
-          .single();
+        const { data: customer, error } =
+          await supabase
+            .from("customers")
+            .select(
+              "id, lifetime_revenue"
+            )
+            .eq(
+              "stripe_subscription_id",
+              subscriptionId
+            )
+            .maybeSingle();
 
-        const currentRevenue = Number(
-          customer?.lifetime_revenue || 0
-        );
+        if (error) {
+          throw error;
+        }
 
-        const invoiceAmount =
-          Number(invoice.amount_paid || 0) / 100;
+        if (!customer) {
+          console.warn(
+            `Invoice paid before customer existed for subscription ${subscriptionId}.`
+          );
+        } else {
+          const currentRevenue = Number(
+            customer.lifetime_revenue || 0
+          );
 
-        await updateCustomerBySubscription(
-          subscriptionId,
-          {
-            subscription_status: "active",
-            status: "Active",
-            lifetime_revenue:
-              currentRevenue + invoiceAmount,
-          }
-        );
+          const invoiceAmount =
+            Number(invoice.amount_paid || 0) /
+            100;
+
+          await updateCustomerBySubscription(
+            subscriptionId,
+            {
+              subscription_status:
+                "active",
+              status: "Active",
+              lifetime_revenue:
+                currentRevenue +
+                invoiceAmount,
+            }
+          );
+        }
       }
     }
 
-    // =========================================
-    // PAYMENT FAILED
-    // =========================================
-
-    if (event.type === "invoice.payment_failed") {
+    if (
+      event.type ===
+      "invoice.payment_failed"
+    ) {
       const invoice =
         event.data.object as Stripe.Invoice;
 
       const subscriptionId =
-        typeof invoice.subscription === "string"
-          ? invoice.subscription
-          : "";
+        getSubscriptionId(
+          invoice.subscription
+        );
 
       if (subscriptionId) {
         await updateCustomerBySubscription(
           subscriptionId,
           {
-            subscription_status: "payment_failed",
+            subscription_status:
+              "past_due",
             status: "Payment Failed",
           }
         );
       }
     }
-
-    // =========================================
-    // SUBSCRIPTION UPDATED
-    // =========================================
 
     if (
       event.type ===
@@ -262,25 +520,31 @@ Deno.serve(async (req) => {
       await updateCustomerBySubscription(
         subscription.id,
         {
+          stripe_customer_id:
+            getCustomerId(
+              subscription.customer
+            ),
+
           subscription_status:
             subscription.status,
 
-          next_billing_date: new Date(
-            subscription.current_period_end * 1000
-          ).toISOString(),
+          monthly_amount:
+            getMonthlySubscriptionAmount(
+              subscription
+            ),
+
+          next_billing_date:
+            getNextBillingDate(
+              subscription
+            ),
 
           status:
-            subscription.status === "active" ||
-            subscription.status === "trialing"
-              ? "Active"
-              : "On Hold",
+            getCustomerOperationalStatus(
+              subscription.status
+            ),
         }
       );
     }
-
-    // =========================================
-    // SUBSCRIPTION CANCELLED
-    // =========================================
 
     if (
       event.type ===
@@ -292,11 +556,18 @@ Deno.serve(async (req) => {
       await updateCustomerBySubscription(
         subscription.id,
         {
-          subscription_status: "cancelled",
+          subscription_status:
+            "canceled",
           status: "Cancelled",
+          next_billing_date: null,
         }
       );
     }
+
+    await markEventProcessed(
+      event.id,
+      event.type
+    );
 
     return new Response(
       JSON.stringify({
@@ -309,18 +580,18 @@ Deno.serve(async (req) => {
         },
       }
     );
-  } catch (err) {
+  } catch (error) {
     console.error(
       "Webhook processing error:",
-      err
+      error
     );
 
     return new Response(
       JSON.stringify({
         error:
-          err instanceof Error
-            ? err.message
-            : String(err),
+          error instanceof Error
+            ? error.message
+            : String(error),
       }),
       {
         status: 500,
