@@ -9,6 +9,7 @@ import {
   Checkbox,
   Divider,
   FormControlLabel,
+  Link,
   MenuItem,
   Stack,
   TextField,
@@ -132,7 +133,6 @@ export default function Signup() {
     Boolean(hasRequiredCustomerInfo) &&
     Boolean(serviceAreaResult?.allowed) &&
     hasValidPriorityDays &&
-    form.sms_consent &&
     !checkoutLoading;
 
   const handleChange = (field, value) => {
@@ -735,11 +735,23 @@ export default function Signup() {
                   overflowWrap: "anywhere",
                 }}
               >
-                Privacy Policy:
-                https://www.backyardrelief.com/home/privacy
-                <br />
-                Terms &amp; Conditions:
-                https://www.backyardrelief.com/home/terms-of-service
+                View our{" "}
+                <Link
+                  href="https://www.backyardrelief.com/home/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Privacy Policy
+                </Link>{" "}
+                and{" "}
+                <Link
+                  href="https://www.backyardrelief.com/home/terms-of-service"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Terms &amp; Conditions
+                </Link>
+                .
               </Typography>
             </Box>
 
