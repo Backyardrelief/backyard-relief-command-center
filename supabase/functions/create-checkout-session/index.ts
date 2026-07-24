@@ -1,9 +1,13 @@
 import Stripe from "npm:stripe@18.5.0";
 
+console.log(
+  "CREATE CHECKOUT SESSION — CUSTOMER METADATA + SMS CONSENT VERSION DEPLOYED",
+);
+
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
 
 if (!stripeSecretKey) {
-  throw new Error("Missing STRIPE_SECRET_KEY environment variable.");
+  throw new Error("Missing STRIPE_SECRET_KEY.");
 }
 
 const stripe = new Stripe(stripeSecretKey, {
@@ -17,9 +21,10 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// -----------------------------------------------------------------------------
-// PRODUCTION ZIP → ZONE → AUTOMATIC SERVICE DAY
-// -----------------------------------------------------------------------------
+const jsonHeaders = {
+  ...corsHeaders,
+  "Content-Type": "application/json",
+};
 
 const ZIP_ZONE_MAP: Record<
   string,
@@ -28,7 +33,6 @@ const ZIP_ZONE_MAP: Record<
     service_day: string;
   }
 > = {
-  // Zone A — Monday
   "80123": {
     zone: "Zone A",
     service_day: "Monday",
@@ -38,7 +42,6 @@ const ZIP_ZONE_MAP: Record<
     service_day: "Monday",
   },
 
-  // Zone B — Tuesday
   "80127": {
     zone: "Zone B",
     service_day: "Tuesday",
@@ -48,7 +51,6 @@ const ZIP_ZONE_MAP: Record<
     service_day: "Tuesday",
   },
 
-  // Zone C — Wednesday
   "80120": {
     zone: "Zone C",
     service_day: "Wednesday",
@@ -58,7 +60,6 @@ const ZIP_ZONE_MAP: Record<
     service_day: "Wednesday",
   },
 
-  // Zone D — Thursday
   "80122": {
     zone: "Zone D",
     service_day: "Thursday",
@@ -68,7 +69,6 @@ const ZIP_ZONE_MAP: Record<
     service_day: "Thursday",
   },
 
-  // Zone E — Friday
   "80125": {
     zone: "Zone E",
     service_day: "Friday",
@@ -83,8 +83,6 @@ const ZIP_ZONE_MAP: Record<
   },
 };
 
-// Premium and Elite customers may select Saturday.
-// No ZIP code is automatically assigned to Saturday.
 const PRIORITY_SIGNUP_DAYS = [
   "Monday",
   "Tuesday",
@@ -92,170 +90,169 @@ const PRIORITY_SIGNUP_DAYS = [
   "Thursday",
   "Friday",
   "Saturday",
-] as const;
+];
 
-type PrioritySignupDay = (typeof PRIORITY_SIGNUP_DAYS)[number];
+type CheckoutCustomer = {
+  first_name?: string;
+  last_name?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  lat?: number | null;
+  lng?: number | null;
+  sms_consent?: boolean;
+  sms_consent_source?: string;
+  sms_consent_at?: string;
+  sms_consent_timestamp?: string;
+};
 
-type CheckoutRequestBody = {
-  customer?: {
-    first_name?: string;
-    last_name?: string;
-    phone?: string;
-    email?: string;
-    address?: string;
-    city?: string;
-    state?: string;
-    zip?: string;
-    sms_consent?: boolean;
-    sms_consent_source?: string;
-    sms_consent_timestamp?: string;
-  };
+type CheckoutPlan = {
+  key?: string;
+  name?: string;
+  price?: number;
+  stripePriceId?: string;
+};
 
-  plan?: {
-    key?: string;
-    name?: string;
-    frequency?: string;
-    stripePriceId?: string;
-  };
+type CheckoutAddOn = {
+  key?: string;
+  label?: string;
+  price?: number;
+  stripePriceId?: string;
+};
 
-  selected_add_ons?: Array<{
-    key?: string;
-    label?: string;
-    stripePriceId?: string;
-    price?: number;
-  }>;
+type ServiceSchedule = {
+  days?: unknown[];
+  frequency?: string;
+};
 
-  service_schedule?: {
-    frequency?: string;
-    days?: string[];
-    week_offset?: number;
-    priority_scheduling?: boolean;
-  };
-
+type CheckoutRequest = {
+  customer?: CheckoutCustomer;
+  plan?: CheckoutPlan;
+  selected_add_ons?: CheckoutAddOn[];
+  service_schedule?: ServiceSchedule;
   monthly_total?: number;
 };
 
-// -----------------------------------------------------------------------------
-// HELPERS
-// -----------------------------------------------------------------------------
+function jsonResponse(
+  body: Record<string, unknown>,
+  status = 200,
+): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: jsonHeaders,
+  });
+}
 
-function cleanZipCode(zip: unknown): string {
+function cleanZip(zip: unknown): string {
   return String(zip || "")
     .replace(/\D/g, "")
     .slice(0, 5);
 }
 
-function normalizePlanKey(planKey: unknown): string {
-  return String(planKey || "")
-    .trim()
-    .toLowerCase();
+function cleanText(value: unknown): string {
+  return String(value ?? "").trim();
 }
 
-function getServiceAssignment(zip: unknown) {
-  const cleanZip = cleanZipCode(zip);
-  const assignment = ZIP_ZONE_MAP[cleanZip];
+function sanitizeDays(days: unknown[]): string[] {
+  if (!Array.isArray(days)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      days
+        .map((day) => cleanText(day))
+        .filter((day) =>
+          PRIORITY_SIGNUP_DAYS.includes(day)
+        ),
+    ),
+  ];
+}
+
+function getAssignment(zip: unknown) {
+  const cleanedZip = cleanZip(zip);
+  const assignment = ZIP_ZONE_MAP[cleanedZip];
 
   if (!assignment) {
     throw new Error(
-      `Sorry, ZIP code ${
-        cleanZip || "provided"
-      } is outside our current service area.`
+      "This ZIP code is outside the Backyard Relief service area.",
     );
   }
 
   return {
     ...assignment,
-    zip: cleanZip,
+    zip: cleanedZip,
   };
 }
 
-function isPrioritySignupDay(day: unknown): day is PrioritySignupDay {
-  return PRIORITY_SIGNUP_DAYS.includes(
-    String(day) as PrioritySignupDay
-  );
-}
+function getSchedule(
+  planKey: string,
+  requestedDays: unknown[],
+  fallbackDay: string,
+) {
+  const normalizedPlan = planKey.toLowerCase();
+  const selectedDays = sanitizeDays(requestedDays);
 
-function sanitizeSelectedDays(days: unknown): PrioritySignupDay[] {
-  if (!Array.isArray(days)) {
-    return [];
-  }
-
-  const validDays = days.filter(isPrioritySignupDay);
-
-  return [...new Set(validDays)];
-}
-
-function getValidatedServiceSchedule({
-  planKey,
-  frontendDays,
-  frontendFrequency,
-  automaticServiceDay,
-  planFrequency,
-}: {
-  planKey: string;
-  frontendDays: unknown;
-  frontendFrequency: unknown;
-  automaticServiceDay: string;
-  planFrequency: unknown;
-}) {
-  const normalizedPlanKey = normalizePlanKey(planKey);
-  const selectedDays = sanitizeSelectedDays(frontendDays);
-
-  if (normalizedPlanKey === "premium") {
+  if (normalizedPlan === "premium") {
     if (selectedDays.length !== 1) {
       throw new Error(
-        "Premium customers must select exactly one service day."
+        "Premium memberships require exactly one service day.",
       );
     }
 
     return {
       days: selectedDays,
-      primaryServiceDay: selectedDays[0],
+      primary: selectedDays[0],
       frequency: "weekly",
-      priorityScheduling: true,
     };
   }
 
-  if (normalizedPlanKey === "elite") {
+  if (normalizedPlan === "elite") {
     if (selectedDays.length !== 2) {
       throw new Error(
-        "Elite customers must select exactly two different service days."
+        "Elite memberships require exactly two service days.",
       );
     }
 
     return {
       days: selectedDays,
-      primaryServiceDay: selectedDays[0],
+      primary: selectedDays[0],
       frequency: "twice_weekly",
-      priorityScheduling: true,
     };
   }
 
-  if (normalizedPlanKey === "basic") {
+  if (normalizedPlan === "basic") {
     return {
-      days: [automaticServiceDay],
-      primaryServiceDay: automaticServiceDay,
+      days: [fallbackDay],
+      primary: fallbackDay,
       frequency: "biweekly",
-      priorityScheduling: false,
     };
   }
 
-  // Standard and Relief Plus are automatically assigned by ZIP.
   return {
-    days: [automaticServiceDay],
-    primaryServiceDay: automaticServiceDay,
-    frequency:
-      String(frontendFrequency || planFrequency || "weekly") ===
-      "biweekly"
-        ? "weekly"
-        : "weekly",
-    priorityScheduling: false,
+    days: [fallbackDay],
+    primary: fallbackDay,
+    frequency: "weekly",
   };
 }
 
-// -----------------------------------------------------------------------------
-// EDGE FUNCTION
-// -----------------------------------------------------------------------------
+function getSmsConsentAt(
+  customer: CheckoutCustomer,
+  smsConsent: boolean,
+): string {
+  if (!smsConsent) {
+    return "";
+  }
+
+  return cleanText(
+    customer.sms_consent_at ||
+      customer.sms_consent_timestamp ||
+      new Date().toISOString(),
+  );
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -265,241 +262,264 @@ Deno.serve(async (req) => {
   }
 
   if (req.method !== "POST") {
-    return new Response(
-      JSON.stringify({
-        error: "Method not allowed.",
-      }),
+    return jsonResponse(
       {
-        status: 405,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-      }
+        error: "Method not allowed",
+      },
+      405,
     );
   }
 
   try {
-    const body = (await req.json()) as CheckoutRequestBody;
+    const body =
+      (await req.json()) as CheckoutRequest;
 
-    console.log("REQUEST BODY:", body);
+    console.log("CHECKOUT REQUEST RECEIVED", {
+      hasCustomer: Boolean(body.customer),
+      planKey: body.plan?.key || null,
+      selectedAddOnCount:
+        body.selected_add_ons?.length || 0,
+      monthlyTotal: body.monthly_total || 0,
+    });
 
-    const {
-      customer,
-      plan,
-      selected_add_ons = [],
-      service_schedule,
-      monthly_total,
-    } = body;
+    const customer = body.customer;
+    const plan = body.plan;
+    const selectedAddOns =
+      body.selected_add_ons || [];
+    const serviceSchedule =
+      body.service_schedule;
 
-    if (!customer?.first_name?.trim()) {
-      throw new Error("Customer first name is required.");
+    if (!customer) {
+      throw new Error(
+        "Missing customer information.",
+      );
     }
 
-    if (!customer?.last_name?.trim()) {
-      throw new Error("Customer last name is required.");
+    if (!cleanText(customer.first_name)) {
+      throw new Error("Missing first name.");
     }
 
-    if (!customer?.email?.trim()) {
-      throw new Error("Customer email is required.");
+    if (!cleanText(customer.last_name)) {
+      throw new Error("Missing last name.");
     }
 
-    if (!customer?.phone?.trim()) {
-      throw new Error("Customer phone number is required.");
+    if (!cleanText(customer.phone)) {
+      throw new Error("Missing phone number.");
     }
 
-    if (!customer?.zip) {
-      throw new Error("Customer ZIP code is required.");
+    if (!cleanText(customer.email)) {
+      throw new Error("Missing email.");
     }
 
-    if (!plan?.key) {
-      throw new Error("Selected plan is required.");
+    if (!cleanText(customer.address)) {
+      throw new Error("Missing address.");
+    }
+
+    if (!cleanText(customer.city)) {
+      throw new Error("Missing city.");
+    }
+
+    if (!cleanZip(customer.zip)) {
+      throw new Error("Missing ZIP code.");
     }
 
     if (!plan?.stripePriceId) {
       throw new Error(
-        "Missing Stripe price ID for the selected plan."
+        "Missing Stripe price for selected plan.",
       );
     }
 
-    if (!customer.sms_consent) {
+    if (!plan.key) {
       throw new Error(
-        "SMS consent is required to continue signup."
+        "Missing selected plan key.",
       );
     }
 
-    const assignment = getServiceAssignment(customer.zip);
+    const assignment = getAssignment(
+      customer.zip,
+    );
 
-    const validatedSchedule = getValidatedServiceSchedule({
-      planKey: plan.key,
-      frontendDays: service_schedule?.days,
-      frontendFrequency: service_schedule?.frequency,
-      automaticServiceDay: assignment.service_day,
-      planFrequency: plan.frequency,
+    const schedule = getSchedule(
+      plan.key,
+      serviceSchedule?.days || [],
+      assignment.service_day,
+    );
+
+    const smsConsent =
+      customer.sms_consent === true;
+
+    const smsConsentSource = smsConsent
+      ? cleanText(
+          customer.sms_consent_source ||
+            "website_signup",
+        )
+      : "";
+
+    const smsConsentAt = getSmsConsentAt(
+      customer,
+      smsConsent,
+    );
+
+    const validAddOns = selectedAddOns.filter(
+      (
+        addOn,
+      ): addOn is CheckoutAddOn & {
+        stripePriceId: string;
+      } => Boolean(addOn.stripePriceId),
+    );
+
+    if (
+      validAddOns.length !==
+      selectedAddOns.length
+    ) {
+      throw new Error(
+        "One or more selected add-ons are missing a Stripe price.",
+      );
+    }
+
+    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] =
+      [
+        {
+          price: plan.stripePriceId,
+          quantity: 1,
+        },
+
+        ...validAddOns.map((addOn) => ({
+          price: addOn.stripePriceId,
+          quantity: 1,
+        })),
+      ];
+
+    console.log("CHECKOUT LINE ITEMS", {
+      count: lineItems.length,
+      plan: plan.key,
+      addOns: validAddOns.map(
+        (addOn) => addOn.key,
+      ),
     });
 
-    const invalidAddOn = selected_add_ons.find(
-      (item) => !item?.stripePriceId
-    );
+    const metadata: Record<string, string> = {
+      first_name: cleanText(
+        customer.first_name,
+      ),
 
-    if (invalidAddOn) {
-      throw new Error(
-        `Missing Stripe price ID for add-on: ${
-          invalidAddOn.label ||
-          invalidAddOn.key ||
-          "Unknown add-on"
-        }.`
-      );
-    }
+      last_name: cleanText(
+        customer.last_name,
+      ),
 
-    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
-      {
-        price: plan.stripePriceId,
-        quantity: 1,
-      },
-      ...selected_add_ons.map((item) => ({
-        price: item.stripePriceId!,
-        quantity: 1,
-      })),
-    ];
+      phone: cleanText(customer.phone),
 
-    console.log("LINE ITEMS:", lineItems);
-    console.log("ASSIGNMENT:", assignment);
-    console.log("VALIDATED SCHEDULE:", validatedSchedule);
+      email: cleanText(customer.email),
 
-    const appUrl =
-      Deno.env.get("APP_URL") || "http://localhost:5173";
+      address: cleanText(customer.address),
 
-    const serviceDaysJson = JSON.stringify(
-      validatedSchedule.days
-    );
+      city: cleanText(customer.city),
 
-    const selectedAddOnKeys = selected_add_ons
-      .map((item) => item.key || "")
-      .filter(Boolean)
-      .join(",");
+      state:
+        cleanText(customer.state) || "CO",
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
+      zip: assignment.zip,
 
-      customer_email: customer.email.trim(),
+      lat:
+        customer.lat === null ||
+        customer.lat === undefined
+          ? ""
+          : String(customer.lat),
 
-      line_items: lineItems,
+      lng:
+        customer.lng === null ||
+        customer.lng === undefined
+          ? ""
+          : String(customer.lng),
 
-      success_url:
-        `${appUrl}/signup-success` +
-        "?session_id={CHECKOUT_SESSION_ID}",
+      plan_key: cleanText(plan.key),
 
-      cancel_url: `${appUrl}/signup`,
+      plan_name:
+        cleanText(plan.name) ||
+        cleanText(plan.key),
 
-      metadata: {
-        first_name: customer.first_name.trim(),
-        last_name: customer.last_name.trim(),
-        phone: customer.phone.trim(),
-        email: customer.email.trim(),
+      service_frequency:
+        schedule.frequency,
 
-        address: customer.address?.trim() || "",
-        city: customer.city?.trim() || "",
-        state: customer.state?.trim() || "CO",
-        zip: assignment.zip,
+      zone: assignment.zone,
 
-        plan_key: plan.key || "",
-        plan_name: plan.name || "",
+      service_day: schedule.primary,
 
-        zone: assignment.zone,
+      service_days: JSON.stringify(
+        schedule.days,
+      ),
 
-        // For Premium, this is the selected day.
-        // For Elite, this is the first selected day.
-        // For all other plans, this is the automatic ZIP day.
-        service_day: validatedSchedule.primaryServiceDay,
+      monthly_total: String(
+        Number(body.monthly_total || 0),
+      ),
 
-        service_days: serviceDaysJson,
+      selected_add_ons: JSON.stringify(
+        validAddOns.map((addOn) => ({
+          key: addOn.key || "",
+          label: addOn.label || "",
+          price: Number(addOn.price || 0),
+        })),
+      ),
 
-        service_frequency: validatedSchedule.frequency,
+      sms_consent: String(smsConsent),
 
-        priority_scheduling: String(
-          validatedSchedule.priorityScheduling
+      sms_consent_source:
+        smsConsentSource,
+
+      sms_consent_at: smsConsentAt,
+    };
+
+    const session =
+      await stripe.checkout.sessions.create({
+        mode: "subscription",
+
+        customer_email: cleanText(
+          customer.email,
         ),
 
-        selected_add_ons: selectedAddOnKeys,
+        line_items: lineItems,
 
-        monthly_total: String(monthly_total || 0),
+        success_url:
+          "https://signup.backyardrelief.com/signup-success?session_id={CHECKOUT_SESSION_ID}",
 
-        sms_consent: String(Boolean(customer.sms_consent)),
+        cancel_url:
+          "https://signup.backyardrelief.com/signup",
 
-        sms_consent_source:
-          customer.sms_consent_source || "website_signup",
+        metadata,
 
-        sms_consent_timestamp:
-          customer.sms_consent_timestamp ||
-          new Date().toISOString(),
-      },
-
-      subscription_data: {
-        metadata: {
-          plan_key: plan.key || "",
-          plan_name: plan.name || "",
-
-          zone: assignment.zone,
-
-          service_day:
-            validatedSchedule.primaryServiceDay,
-
-          service_days: serviceDaysJson,
-
-          service_frequency:
-            validatedSchedule.frequency,
-
-          priority_scheduling: String(
-            validatedSchedule.priorityScheduling
-          ),
-
-          selected_add_ons: selectedAddOnKeys,
-
-          monthly_total: String(monthly_total || 0),
+        subscription_data: {
+          metadata,
         },
-      },
-    });
+      });
 
     console.log(
-      "CHECKOUT SESSION CREATED:",
-      session.id
-    );
-
-    return new Response(
-      JSON.stringify({
-        url: session.url,
-        zone: assignment.zone,
-        service_day:
-          validatedSchedule.primaryServiceDay,
-        service_days: validatedSchedule.days,
-        service_frequency:
-          validatedSchedule.frequency,
-      }),
+      "STRIPE CHECKOUT SESSION CREATED",
       {
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-      }
+        sessionId: session.id,
+        serviceDays: schedule.days,
+        smsConsent,
+      },
     );
-  } catch (error) {
-    console.error("CHECKOUT ERROR:", error);
 
-    return new Response(
-      JSON.stringify({
+    return jsonResponse({
+      success: true,
+      url: session.url,
+      session_id: session.id,
+    });
+  } catch (error) {
+    console.error(
+      "CREATE CHECKOUT SESSION ERROR:",
+      error,
+    );
+
+    return jsonResponse(
+      {
         error:
           error instanceof Error
             ? error.message
             : String(error),
-      }),
-      {
-        status: 400,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-      }
+      },
+      400,
     );
   }
 });
