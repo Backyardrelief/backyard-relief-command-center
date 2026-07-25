@@ -44,25 +44,34 @@ function ProtectedLayout({ children }) {
   );
 }
 
+function RootRedirect() {
+  const hostname = window.location.hostname;
+
+  const shouldOpenCrm =
+    hostname.startsWith("crm.") ||
+    hostname === "localhost" ||
+    hostname === "127.0.0.1";
+
+  return (
+    <Navigate
+      to={shouldOpenCrm ? "/dashboard" : "/signup"}
+      replace
+    />
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* MAIN DOMAIN / ROOT GOES TO PUBLIC SIGNUP */}
-        <Route
-  path="/"
-  element={
-    window.location.hostname.startsWith("crm.")
-      ? <Navigate to="/dashboard" replace />
-      : <Navigate to="/signup" replace />
-  }
-/>
+        {/* CRM DOMAIN AND LOCAL DEVELOPMENT OPEN THE DASHBOARD */}
+        <Route path="/" element={<RootRedirect />} />
 
-        {/* PUBLIC CUSTOMER SIGNUP PAGE */}
+        {/* PUBLIC CUSTOMER SIGNUP */}
         <Route path="/signup" element={<Signup />} />
         <Route path="/signup-success" element={<SignupSuccess />} />
 
-        {/* PROTECTED CRM DASHBOARD */}
+        {/* PROTECTED CRM */}
         <Route
           path="/dashboard"
           element={
@@ -144,7 +153,7 @@ export default function App() {
           }
         />
 
-        <Route path="*" element={<Navigate to="/signup" replace />} />
+        <Route path="*" element={<RootRedirect />} />
       </Routes>
     </BrowserRouter>
   );

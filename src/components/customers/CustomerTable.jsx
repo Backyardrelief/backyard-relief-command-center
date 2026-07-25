@@ -14,6 +14,9 @@ import {
   Typography,
   Divider,
   Chip,
+  Switch,
+  FormControlLabel,
+  Alert,
 } from "@mui/material";
 
 import { DataGrid } from "@mui/x-data-grid";
@@ -132,6 +135,10 @@ export default function CustomerTable() {
 
   const [drawerCustomer, setDrawerCustomer] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+
+  const [savingSmsConsent, setSavingSmsConsent] = useState(false);
+  const [smsMessage, setSmsMessage] = useState("");
+  const [smsError, setSmsError] = useState("");
 
   useEffect(() => {
     loadCustomers();
@@ -330,6 +337,84 @@ export default function CustomerTable() {
     eventBus.emit("customersUpdated");
   };
 
+  const handleSmsConsentChange = async (event) => {
+    if (!drawerCustomer) {
+      return;
+    }
+
+    const enabled = event.target.checked;
+    const previousValue = Boolean(drawerCustomer.sms_consent);
+
+    setSmsMessage("");
+    setSmsError("");
+    setSavingSmsConsent(true);
+
+    setDrawerCustomer((currentCustomer) => ({
+      ...currentCustomer,
+      sms_consent: enabled,
+    }));
+
+    try {
+      const now = new Date().toISOString();
+
+      const updates = enabled
+        ? {
+            sms_consent: true,
+            sms_consent_source: "manual_crm",
+            sms_consent_at: now,
+            sms_consent_timestamp: now,
+          }
+        : {
+            sms_consent: false,
+          };
+
+      const { data: updated, error } = await supabase
+        .from("customers")
+        .update(updates)
+        .eq("id", drawerCustomer.id)
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      const normalized = normalizeCustomer(updated);
+
+      setDrawerCustomer(normalized);
+
+      setCustomers((previousCustomers) =>
+        previousCustomers.map((customer) =>
+          customer.id === normalized.id
+            ? normalized
+            : customer
+        )
+      );
+
+      setSmsMessage(
+        enabled
+          ? "SMS service notifications enabled."
+          : "SMS service notifications disabled."
+      );
+
+      eventBus.emit("customersUpdated", updated);
+    } catch (error) {
+      console.error("SMS consent update error:", error);
+
+      setDrawerCustomer((currentCustomer) => ({
+        ...currentCustomer,
+        sms_consent: previousValue,
+      }));
+
+      setSmsError(
+        error?.message ||
+          "SMS settings could not be updated."
+      );
+    } finally {
+      setSavingSmsConsent(false);
+    }
+  };
+
   const columns = [
     {
       field: "name",
@@ -434,9 +519,11 @@ export default function CustomerTable() {
           columns={columns}
           loading={loading}
           pageSizeOptions={[5, 10, 25]}
-          onRowClick={(params) =>
-            setDrawerCustomer(params.row)
-          }
+          onRowClick={(params) => {
+            setDrawerCustomer(params.row);
+            setSmsMessage("");
+            setSmsError("");
+          }}
           sx={{
             minWidth: 0,
 
@@ -702,6 +789,132 @@ export default function CustomerTable() {
               drawerCustomer?.lifetime_revenue
             )}
           </Typography>
+
+          <Divider sx={{ my: 2 }} />
+
+          <Typography
+            variant="h6"
+            fontWeight="bold"
+            gutterBottom
+          >
+            Customer Communications
+          </Typography>
+
+          <Box
+            sx={{
+              p: 2,
+              mb: 2,
+              border: 1,
+              borderColor: drawerCustomer?.sms_consent
+                ? "success.main"
+                : "divider",
+              borderRadius: 2,
+              bgcolor: "background.default",
+            }}
+          >
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={Boolean(
+                    drawerCustomer?.sms_consent
+                  )}
+                  onChange={handleSmsConsentChange}
+                  disabled={
+                    savingSmsConsent ||
+                    !drawerCustomer?.phone
+                  }
+                  color="success"
+                />
+              }
+              label={
+                <Box>
+                  <Typography fontWeight="bold">
+                    SMS Service Notifications
+                  </Typography>
+
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                  >
+                    Arrival, completion, scheduling,
+                    gate, and account-related service
+                    texts
+                  </Typography>
+                </Box>
+              }
+              sx={{
+                m: 0,
+                width: "100%",
+                alignItems: "flex-start",
+                "& .MuiSwitch-root": {
+                  mr: 1,
+                  mt: -0.25,
+                },
+              }}
+            />
+
+            <Chip
+              label={
+                drawerCustomer?.sms_consent
+                  ? "SMS Enabled"
+                  : "SMS Disabled"
+              }
+              color={
+                drawerCustomer?.sms_consent
+                  ? "success"
+                  : "default"
+              }
+              variant={
+                drawerCustomer?.sms_consent
+                  ? "filled"
+                  : "outlined"
+              }
+              size="small"
+              sx={{ mt: 2 }}
+            />
+
+            {!drawerCustomer?.phone && (
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                Add a phone number before enabling SMS.
+              </Alert>
+            )}
+
+            {savingSmsConsent && (
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ mt: 1.5 }}
+              >
+                Saving SMS preference...
+              </Typography>
+            )}
+
+            {smsMessage && (
+              <Alert severity="success" sx={{ mt: 2 }}>
+                {smsMessage}
+              </Alert>
+            )}
+
+            {smsError && (
+              <Alert severity="error" sx={{ mt: 2 }}>
+                {smsError}
+              </Alert>
+            )}
+
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              display="block"
+              sx={{
+                mt: 1.5,
+                lineHeight: 1.45,
+              }}
+            >
+              Only enable this after the customer has
+              clearly agreed to receive service-related
+              text messages.
+            </Typography>
+          </Box>
 
           <Divider sx={{ my: 2 }} />
 

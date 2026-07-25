@@ -7,7 +7,12 @@ import {
   Stack,
   IconButton,
   Button,
+  Switch,
+  FormControlLabel,
+  Alert,
 } from "@mui/material";
+
+import { useEffect, useState } from "react";
 
 import CloseIcon from "@mui/icons-material/Close";
 import PhoneIcon from "@mui/icons-material/Phone";
@@ -20,6 +25,8 @@ import NotesIcon from "@mui/icons-material/Notes";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
 import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+
+import { supabase } from "../supabaseClient";
 
 function formatCurrency(value) {
   const amount = Number(value);
@@ -156,7 +163,68 @@ export default function CustomerDetailsDrawer({
   onClose,
   customer,
 }) {
+  const [smsConsent, setSmsConsent] = useState(false);
+  const [savingSmsConsent, setSavingSmsConsent] = useState(false);
+  const [smsMessage, setSmsMessage] = useState("");
+  const [smsError, setSmsError] = useState("");
+
+  useEffect(() => {
+    setSmsConsent(Boolean(customer?.sms_consent));
+    setSmsMessage("");
+    setSmsError("");
+  }, [customer]);
+
   if (!customer) return null;
+
+  async function handleSmsConsentChange(event) {
+    const enabled = event.target.checked;
+
+    setSmsConsent(enabled);
+    setSavingSmsConsent(true);
+    setSmsMessage("");
+    setSmsError("");
+
+    try {
+      const now = new Date().toISOString();
+
+      const updates = enabled
+        ? {
+            sms_consent: true,
+            sms_consent_source: "manual_crm",
+            sms_consent_at: now,
+            sms_consent_timestamp: now,
+          }
+        : {
+            sms_consent: false,
+          };
+
+      const { error } = await supabase
+        .from("customers")
+        .update(updates)
+        .eq("id", customer.id);
+
+      if (error) {
+        throw error;
+      }
+
+      setSmsMessage(
+        enabled
+          ? "SMS service notifications enabled."
+          : "SMS service notifications disabled.",
+      );
+    } catch (error) {
+      console.error("Error updating SMS consent:", error);
+
+      setSmsConsent(!enabled);
+
+      setSmsError(
+        error?.message ||
+          "SMS settings could not be updated.",
+      );
+    } finally {
+      setSavingSmsConsent(false);
+    }
+  }
 
   const fullName =
     `${customer.first_name || ""} ${customer.last_name || ""}`.trim() ||
@@ -417,6 +485,110 @@ export default function CustomerDetailsDrawer({
               label="Lifetime Revenue"
               value={formatCurrency(lifetimeRevenue)}
             />
+                    </Box>
+
+          <Divider sx={{ my: 3 }} />
+
+          <SectionTitle>Customer Communications</SectionTitle>
+
+          <Box
+            sx={{
+              p: {
+                xs: 1.5,
+                sm: 2,
+              },
+              border: 1,
+              borderColor: smsConsent
+                ? "success.main"
+                : "divider",
+              borderRadius: 2,
+              bgcolor: "background.default",
+              width: "100%",
+              boxSizing: "border-box",
+            }}
+          >
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={smsConsent}
+                  onChange={handleSmsConsentChange}
+                  disabled={savingSmsConsent}
+                  color="success"
+                />
+              }
+              label={
+                <Box>
+                  <Typography fontWeight="bold">
+                    SMS Service Notifications
+                  </Typography>
+
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                  >
+                    Arrival, completion, scheduling, gate,
+                    and account-related service texts
+                  </Typography>
+                </Box>
+              }
+              sx={{
+                m: 0,
+                width: "100%",
+                alignItems: "flex-start",
+                "& .MuiSwitch-root": {
+                  mr: 1,
+                  mt: -0.25,
+                },
+              }}
+            />
+
+            <Chip
+              label={
+                smsConsent
+                  ? "SMS Enabled"
+                  : "SMS Disabled"
+              }
+              color={smsConsent ? "success" : "default"}
+              variant={smsConsent ? "filled" : "outlined"}
+              size="small"
+              sx={{ mt: 2 }}
+            />
+
+            {savingSmsConsent && (
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ mt: 1.5 }}
+              >
+                Saving SMS preference...
+              </Typography>
+            )}
+
+            {smsMessage && (
+              <Alert severity="success" sx={{ mt: 2 }}>
+                {smsMessage}
+              </Alert>
+            )}
+
+            {smsError && (
+              <Alert severity="error" sx={{ mt: 2 }}>
+                {smsError}
+              </Alert>
+            )}
+
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              display="block"
+              sx={{
+                mt: 1.5,
+                lineHeight: 1.45,
+              }}
+            >
+              Only enable this after the customer has
+              clearly agreed to receive service-related
+              text messages.
+            </Typography>
           </Box>
 
           <Divider sx={{ my: 3 }} />
