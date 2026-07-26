@@ -51,25 +51,25 @@ export const ADD_ONS = [
   },
 
   {
-    key: "yard_deodorizing_monthly",
-    label: "Monthly Yard Deodorizing",
-    price: 35,
-    stripePriceId: "price_1Tr4aWRtjZ6dFcKRnLEKYD7O",
-  },
+  key: "yard_deodorizing_monthly",
+  label: "WYSIWASH® Yard Sanitizing & Deodorizing (Monthly)",
+  price: 50,
+  stripePriceId: "price_1Tr4aWRtjZ6dFcKRnLEKYD7O",
+},
 
-  {
-    key: "yard_deodorizing_weekly",
-    label: "Weekly Yard Deodorizing",
-    price: 80,
-    stripePriceId: "price_1Tr4c3RtjZ6dFcKRrHjhB8yG",
-  },
+{
+  key: "yard_deodorizing_weekly",
+  label: "WYSIWASH® Yard Sanitizing & Deodorizing (Weekly)",
+  price: 80,
+  stripePriceId: "price_1Tr4c3RtjZ6dFcKRrHjhB8yG",
+},
 
-  {
-    key: "yard_deodorizing_biweekly",
-    label: "BiWeekly Yard Deodorizing",
-    price: 40,
-    stripePriceId: "price_1Tr4bSRtjZ6dFcKRfoUFsNZN",
-  },
+{
+  key: "yard_deodorizing_biweekly",
+  label: "WYSIWASH® Yard Sanitizing & Deodorizing (Every Other Week)",
+  price: 40,
+  stripePriceId: "price_1Tr4bSRtjZ6dFcKRfoUFsNZN",
+},
 
   {
     key: "additional_dog",

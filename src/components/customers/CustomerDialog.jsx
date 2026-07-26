@@ -911,7 +911,7 @@ export default function CustomerDialog({
                   }
                 />
               }
-              label="Yard Deodorizer Add-On"
+              label="WYSIWASH® Yard Sanitizing & Deodorizing"
             />
           </Grid>
 
@@ -924,7 +924,7 @@ export default function CustomerDialog({
               >
                 <TextField
                   select
-                  label="Deodorizer Frequency"
+                  label="WYSIWASH® Frequency"
                   value={
                     form.deodorizer_frequency ||
                     "monthly"
@@ -948,7 +948,7 @@ export default function CustomerDialog({
                   </MenuItem>
 
                   <MenuItem value="biweekly">
-                    Biweekly
+                    Every Other Week
                   </MenuItem>
                 </TextField>
               </Grid>
@@ -960,7 +960,7 @@ export default function CustomerDialog({
               >
                 <TextField
                   type="date"
-                  label="Next Deodorizer Date"
+                  label="Next WYSIWASH® Service Date"
                   value={
                     form.next_deodorizer_date ||
                     ""
