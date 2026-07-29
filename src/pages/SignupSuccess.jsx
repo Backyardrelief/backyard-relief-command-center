@@ -95,10 +95,39 @@ const FLOATING_PAWS = Array.from({ length: 10 }, (_, index) => ({
 }));
 
 const SPARKLES = [
-  { left: "36%", top: "31%", delay: "0s", size: 12 },
-  { left: "66%", top: "24%", delay: "0.6s", size: 10 },
-  { left: "67%", top: "43%", delay: "1.1s", size: 8 },
-  { left: "31%", top: "49%", delay: "1.6s", size: 9 },
+  {
+    left: "36%",
+    top: "31%",
+    delay: "0s",
+    size: 12,
+    mobileLeft: "34%",
+    mobileTop: "31%",
+    mobileSize: 8,
+  },
+  {
+    left: "66%",
+    top: "24%",
+    delay: "0.6s",
+    size: 10,
+    mobileLeft: "77%",
+    mobileTop: "29%",
+    mobileSize: 7,
+    mobileOpacity: 0.62,
+  },
+  {
+    left: "67%",
+    top: "43%",
+    delay: "1.1s",
+    size: 8,
+    hideOnMobile: true,
+  },
+  {
+    left: "31%",
+    top: "49%",
+    delay: "1.6s",
+    size: 9,
+    hideOnMobile: true,
+  },
 ];
 
 const ADD_ON_LABELS = {
@@ -418,13 +447,52 @@ export default function SignupSuccess() {
     customer.customer_number ||
     "";
 
+  const smsConsentEnabled =
+    confirmation?.sms_consent === true ||
+    confirmation?.sms_consent === "true";
+
+  const displayedNextSteps = NEXT_STEPS.map((step) => {
+    if (smsConsentEnabled) {
+      return step;
+    }
+
+    if (step.title === "We’ll Text Before We Arrive") {
+      return {
+        ...step,
+        icon: "📵",
+        title: "SMS Notifications Not Enabled",
+        description:
+          "You did not select text notifications during signup. Contact Backyard Relief whenever you would like to opt in to service alerts.",
+      };
+    }
+
+    if (step.title === "Closed-Gate Photo Confirmation") {
+      return {
+        ...step,
+        title: "Closed-Gate Security Check",
+        description:
+          "We’ll securely close your gate after every visit. Closed-gate photo confirmations are available when SMS notifications are enabled.",
+      };
+    }
+
+    return step;
+  });
+
   return (
     <Box
       sx={{
         minHeight: "100vh",
         bgcolor: "#F3F7F2",
-        overflow: "hidden",
+        overflowX: "clip",
+        overflowY: "hidden",
         position: "relative",
+        width: "100%",
+        maxWidth: "100vw",
+        boxSizing: "border-box",
+
+        "& *, & *::before, & *::after": {
+          boxSizing: "border-box",
+        },
 
         "@keyframes confettiFall": {
           "0%": {
@@ -574,7 +642,7 @@ export default function SignupSuccess() {
         sx={{
           position: "relative",
           minHeight: {
-            xs: 575,
+            xs: 520,
             sm: 650,
             md: 735,
           },
@@ -585,7 +653,7 @@ export default function SignupSuccess() {
           color: BRAND.white,
           px: 2,
           py: {
-            xs: 5.5,
+            xs: 4.25,
             sm: 7,
             md: 9,
           },
@@ -610,22 +678,21 @@ export default function SignupSuccess() {
           sx={{
             position: "absolute",
             top: {
-  xs: 18,
-  sm: 24,
-  md: 30,
-},
-
-left: {
-  xs: 18,
-  sm: 24,
-  md: 30,
-},
+              xs: 14,
+              sm: 24,
+              md: 30,
+            },
+            left: {
+              xs: 14,
+              sm: 24,
+              md: 30,
+            },
             width: {
-  xs: 105,
-  sm: 130,
-  md: 170,
-  lg: 195,
-},
+              xs: 74,
+              sm: 130,
+              md: 170,
+              lg: 195,
+            },
             height: "auto",
             objectFit: "contain",
             borderRadius: {
@@ -694,12 +761,32 @@ left: {
             aria-hidden="true"
             sx={{
               position: "absolute",
-              left: sparkle.left,
-              top: sparkle.top,
-              width: sparkle.size,
-              height: sparkle.size,
+              display: {
+                xs: sparkle.hideOnMobile ? "none" : "block",
+                sm: "block",
+              },
+              left: {
+                xs: sparkle.mobileLeft || sparkle.left,
+                sm: sparkle.left,
+              },
+              top: {
+                xs: sparkle.mobileTop || sparkle.top,
+                sm: sparkle.top,
+              },
+              width: {
+                xs: sparkle.mobileSize || sparkle.size,
+                sm: sparkle.size,
+              },
+              height: {
+                xs: sparkle.mobileSize || sparkle.size,
+                sm: sparkle.size,
+              },
               bgcolor:
                 index % 2 === 0 ? BRAND.gold : BRAND.white,
+              opacity: {
+                xs: sparkle.mobileOpacity ?? 1,
+                sm: 1,
+              },
               clipPath:
                 "polygon(50% 0%, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0% 50%, 39% 39%)",
               animation:
@@ -709,21 +796,33 @@ left: {
         ))}
 
         <Stack
-          spacing={2.15}
+          spacing={{ xs: 1.55, sm: 2.15 }}
           alignItems="center"
           sx={{
             position: "relative",
             zIndex: 3,
             width: "100%",
             maxWidth: 960,
+            pt: {
+              xs: 6.5,
+              sm: 0,
+            },
           }}
         >
           <Chip
             label="🐾 WELCOME TO THE RELIEF CLUB"
             sx={{
               minWidth: {
-                xs: 278,
+                xs: 0,
                 sm: 340,
+              },
+              width: {
+                xs: "calc(100% - 84px)",
+                sm: "auto",
+              },
+              maxWidth: {
+                xs: 300,
+                sm: "none",
               },
               bgcolor: "rgba(255,255,255,0.96)",
               color: BRAND.forest,
@@ -732,7 +831,21 @@ left: {
                 xs: "0.035em",
                 sm: "0.08em",
               },
-              px: 1.5,
+              px: {
+                xs: 0.8,
+                sm: 1.5,
+              },
+              "& .MuiChip-label": {
+                px: {
+                  xs: 1,
+                  sm: 1.5,
+                },
+                fontSize: {
+                  xs: "0.72rem",
+                  sm: "inherit",
+                },
+                whiteSpace: "nowrap",
+              },
               boxShadow: "0 10px 30px rgba(0,0,0,0.18)",
               animation: "fadeIn 0.55s ease-out 0.05s both",
             }}
@@ -742,11 +855,11 @@ left: {
             sx={{
               position: "relative",
               width: {
-                xs: 122,
+                xs: 108,
                 sm: 150,
               },
               height: {
-                xs: 122,
+                xs: 108,
                 sm: 150,
               },
               borderRadius: "50%",
@@ -767,7 +880,7 @@ left: {
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
                 fontSize: {
-                  xs: 74,
+                  xs: 66,
                   sm: 90,
                 },
                 fontWeight: 1000,
@@ -781,9 +894,18 @@ left: {
               aria-hidden="true"
               sx={{
                 position: "absolute",
-                right: -40,
-                top: 9,
-                fontSize: 21,
+                right: {
+                  xs: -27,
+                  sm: -40,
+                },
+                top: {
+                  xs: 3,
+                  sm: 9,
+                },
+                fontSize: {
+                  xs: 18,
+                  sm: 21,
+                },
                 animation: "sparklePulse 2s ease-in-out infinite",
               }}
             >
@@ -795,7 +917,7 @@ left: {
             component="h1"
             sx={{
               fontSize: {
-                xs: "2.15rem",
+                xs: "2rem",
                 sm: "3.25rem",
                 md: "3.95rem",
               },
@@ -810,13 +932,36 @@ left: {
               "Preparing your celebration..."
             ) : (
               <>
-                🎉 Congratulations, {firstName || "Friend"}!
+                <Box
+                  component="span"
+                  aria-hidden="true"
+                  sx={{
+                    display: "inline",
+                    mr: {
+                      xs: 1.4,
+                      sm: 1,
+                    },
+                    mb: 0,
+                    fontSize: {
+                      xs: "1.7rem",
+                      sm: "inherit",
+                    },
+                    lineHeight: 1,
+                    verticalAlign: "0.04em",
+                  }}
+                >
+                  🎉
+                </Box>
+                Congratulations, {firstName || "Friend"}!
 
                 <Box
                   component="span"
                   sx={{
                     display: "block",
-                    mt: 2,
+                    mt: {
+                      xs: 1.25,
+                      sm: 2,
+                    },
                     color: BRAND.white,
                     fontSize: {
                       xs: "1.55rem",
@@ -840,7 +985,10 @@ left: {
                       md: "5.25rem",
                     },
                     lineHeight: 1,
-                    mt: 1.25,
+                    mt: {
+                      xs: 0.75,
+                      sm: 1.25,
+                    },
                     animation: "riseIn 0.7s ease-out 0.75s both",
                   }}
                 >
@@ -899,7 +1047,10 @@ left: {
           <Paper
             elevation={0}
             sx={{
-              mt: 0.5,
+              mt: {
+                xs: 0.15,
+                sm: 0.5,
+              },
               width: "fit-content",
               maxWidth: {
                 xs: 330,
@@ -909,7 +1060,10 @@ left: {
                 xs: 2,
                 sm: 3,
               },
-              py: 1.15,
+              py: {
+                xs: 0.85,
+                sm: 1.15,
+              },
               borderRadius: {
                 xs: 4,
                 sm: 999,
@@ -967,7 +1121,10 @@ left: {
             useFlexGap
             justifyContent="center"
             sx={{
-              pt: 0.5,
+              pt: {
+                xs: 0.15,
+                sm: 0.5,
+              },
               maxWidth: 720,
               animation: "riseIn 0.7s ease-out 1.55s both",
             }}
@@ -998,18 +1155,17 @@ left: {
           sx={{
             position: "absolute",
             right: {
-  xs: -10,
-  sm: -4,
-  md: -14,
-  lg: -10,
-},
-
-bottom: {
-  xs: 6,
-  sm: 2,
-  md: -10,
-  lg: -8,
-},
+              xs: -18,
+              sm: -4,
+              md: -14,
+              lg: -10,
+            },
+            bottom: {
+              xs: -4,
+              sm: 2,
+              md: -10,
+              lg: -8,
+            },
             zIndex: 4,
             display: "block",
             pointerEvents: "none",
@@ -1022,12 +1178,15 @@ bottom: {
             alt="Rocky welcoming new Relief Club members"
             sx={{
               width: {
-  xs: 175,
-  sm: 220,
-  md: 290,
-  lg: 340,
-},
-              maxWidth: "34vw",
+                xs: 118,
+                sm: 220,
+                md: 290,
+                lg: 340,
+              },
+              maxWidth: {
+                xs: "25vw",
+                sm: "34vw",
+              },
               height: "auto",
               objectFit: "contain",
               display: "block",
@@ -1081,9 +1240,11 @@ bottom: {
         sx={{
           width: "100%",
           maxWidth: 1150,
+          minWidth: 0,
+          boxSizing: "border-box",
           mx: "auto",
           px: {
-            xs: 2,
+            xs: 1.75,
             sm: 3,
           },
           pb: 8,
@@ -1153,7 +1314,7 @@ bottom: {
               <CardContent
                 sx={{
                   p: {
-                    xs: 3,
+                    xs: 2.5,
                     sm: 5,
                   },
                 }}
@@ -1224,7 +1385,7 @@ bottom: {
                       xs: "column",
                       sm: "row",
                     }}
-                    spacing={1}
+                    spacing={{ xs: 0.7, sm: 1 }}
                     alignItems={{
                       xs: "flex-start",
                       sm: "center",
@@ -1232,6 +1393,7 @@ bottom: {
                   >
                     <Chip
                       label="⭐ FOUNDING MEMBER"
+                      size="small"
                       sx={{
                         bgcolor: "#FFF4D6",
                         color: "#7B5610",
@@ -1242,6 +1404,7 @@ bottom: {
 
                     <Chip
                       label="🟢 SERVICE ACTIVATED"
+                      size="small"
                       sx={{
                         bgcolor: BRAND.lightGreen,
                         color: BRAND.forest,
@@ -1287,7 +1450,7 @@ bottom: {
                   </Stack>
                 </Stack>
 
-                <Divider sx={{ my: 3 }} />
+                <Divider sx={{ my: { xs: 2.5, sm: 3 } }} />
 
                 <Box
                   sx={{
@@ -1297,7 +1460,10 @@ bottom: {
                       sm: "repeat(2, 1fr)",
                       lg: "repeat(4, 1fr)",
                     },
-                    gap: 3,
+                    gap: {
+                      xs: 2.25,
+                      sm: 3,
+                    },
                   }}
                 >
                   <DetailItem
@@ -1401,11 +1567,30 @@ bottom: {
                           key={addOn}
                           label={`✓ ${addOn}`}
                           sx={{
+                            maxWidth: "100%",
+                            height: {
+                              xs: "auto",
+                              sm: 32,
+                            },
                             bgcolor: BRAND.white,
                             color: BRAND.forest,
                             fontWeight: 800,
                             border:
                               "1px solid rgba(46,125,50,0.18)",
+                            "& .MuiChip-label": {
+                              display: "block",
+                              whiteSpace: {
+                                xs: "normal",
+                                sm: "nowrap",
+                              },
+                              overflow: "visible",
+                              textOverflow: "clip",
+                              lineHeight: 1.35,
+                              py: {
+                                xs: 0.85,
+                                sm: 0,
+                              },
+                            },
                           }}
                         />
                       ))}
@@ -1421,16 +1606,24 @@ bottom: {
             </Card>
 
             {/* FOUNDING MEMBER BENEFITS */}
-            <Box sx={{ mt: 7 }}>
+            <Box sx={{ mt: { xs: 6.5, sm: 7 } }}>
               <Typography
                 component="h2"
                 textAlign="center"
                 color={BRAND.navy}
                 fontWeight={1000}
                 sx={{
+                  width: "100%",
+                  maxWidth: "100%",
+                  minWidth: 0,
+                  overflowWrap: "anywhere",
                   fontSize: {
-                    xs: "2rem",
+                    xs: "1.75rem",
                     sm: "2.6rem",
+                  },
+                  lineHeight: {
+                    xs: 1.14,
+                    sm: 1.2,
                   },
                 }}
               >
@@ -1452,7 +1645,10 @@ bottom: {
 
               <Box
                 sx={{
-                  mt: 4,
+                  mt: {
+                    xs: 2.75,
+                    sm: 4,
+                  },
                   display: "grid",
                   gridTemplateColumns: {
                     xs: "1fr",
@@ -1482,7 +1678,10 @@ bottom: {
                     elevation={0}
                     sx={{
                       borderRadius: 4,
-                      p: 3,
+                      p: {
+                        xs: 2.4,
+                        sm: 3,
+                      },
                       bgcolor: BRAND.white,
                       border: "1px solid rgba(244,185,66,0.3)",
                       boxShadow:
@@ -1496,7 +1695,14 @@ bottom: {
                       },
                     }}
                   >
-                    <Typography sx={{ fontSize: 38 }}>
+                    <Typography
+                      sx={{
+                        fontSize: {
+                          xs: 40,
+                          sm: 38,
+                        },
+                      }}
+                    >
                       {benefit.icon}
                     </Typography>
                     <Typography
@@ -1519,7 +1725,10 @@ bottom: {
 
             <Box
               sx={{
-                mt: 7,
+                mt: {
+                  xs: 6.5,
+                  sm: 7,
+                },
                 animation: "riseIn 0.75s ease-out 1.45s both",
               }}
             >
@@ -1530,8 +1739,12 @@ bottom: {
                 fontWeight={1000}
                 sx={{
                   fontSize: {
-                    xs: "2rem",
+                    xs: "1.9rem",
                     sm: "2.6rem",
+                  },
+                  lineHeight: {
+                    xs: 1.14,
+                    sm: 1.2,
                   },
                 }}
               >
@@ -1553,23 +1766,34 @@ bottom: {
 
               <Box
                 sx={{
-                  mt: 4,
+                  mt: {
+                    xs: 2.75,
+                    sm: 4,
+                  },
                   display: "grid",
+                  width: "100%",
+                  minWidth: 0,
                   gridTemplateColumns: {
-                    xs: "1fr",
+                    xs: "minmax(0, 1fr)",
                     sm: "repeat(2, 1fr)",
                     lg: "repeat(5, 1fr)",
                   },
-                  gap: 2.5,
+                  gap: {
+                    xs: 1.75,
+                    sm: 2.5,
+                  },
                 }}
               >
-                {NEXT_STEPS.map((step, index) => (
+                {displayedNextSteps.map((step, index) => (
                   <Paper
                     key={step.title}
                     elevation={0}
                     sx={{
                       borderRadius: 4,
-                      p: 3,
+                      p: {
+                        xs: 2.25,
+                        sm: 3,
+                      },
                       bgcolor: BRAND.white,
                       border: "1px solid rgba(22,78,42,0.1)",
                       boxShadow:
@@ -1594,13 +1818,22 @@ bottom: {
                   >
                     <Box
                       sx={{
-                        width: 52,
-                        height: 52,
+                        width: {
+                          xs: 44,
+                          sm: 52,
+                        },
+                        height: {
+                          xs: 44,
+                          sm: 52,
+                        },
                         borderRadius: "50%",
                         display: "grid",
                         placeItems: "center",
                         bgcolor: BRAND.lightGreen,
-                        fontSize: "1.45rem",
+                        fontSize: {
+                          xs: "1.25rem",
+                          sm: "1.45rem",
+                        },
                       }}
                     >
                       {step.icon}
@@ -1610,8 +1843,14 @@ bottom: {
                       color={BRAND.forest}
                       fontWeight={900}
                       sx={{
-                        mt: 2,
-                        fontSize: "1.15rem",
+                        mt: {
+                          xs: 1.4,
+                          sm: 2,
+                        },
+                        fontSize: {
+                          xs: "1.08rem",
+                          sm: "1.15rem",
+                        },
                       }}
                     >
                       {step.title}
@@ -1620,8 +1859,14 @@ bottom: {
                     <Typography
                       color="text.secondary"
                       sx={{
-                        mt: 1,
-                        lineHeight: 1.65,
+                        mt: {
+                          xs: 0.75,
+                          sm: 1,
+                        },
+                        lineHeight: {
+                          xs: 1.55,
+                          sm: 1.65,
+                        },
                       }}
                     >
                       {step.description}
@@ -1634,7 +1879,10 @@ bottom: {
             <Paper
               elevation={0}
               sx={{
-                mt: 7,
+                mt: {
+                  xs: 6.5,
+                  sm: 7,
+                },
                 borderRadius: 5,
                 overflow: "hidden",
                 border: "1px solid rgba(23,50,77,0.1)",
@@ -1657,20 +1905,33 @@ bottom: {
                     bgcolor: BRAND.navy,
                     color: BRAND.white,
                     p: {
-                      xs: 3,
+                      xs: 2.4,
                       sm: 4,
                     },
                   }}
                 >
-                  <Typography sx={{ fontSize: 48 }}>
+                  <Typography
+                    sx={{
+                      fontSize: {
+                        xs: 40,
+                        sm: 48,
+                      },
+                    }}
+                  >
                     📲
                   </Typography>
 
                   <Typography
                     fontWeight={1000}
                     sx={{
-                      mt: 1,
-                      fontSize: "1.9rem",
+                      mt: {
+                        xs: 0.6,
+                        sm: 1,
+                      },
+                      fontSize: {
+                        xs: "1.65rem",
+                        sm: "1.9rem",
+                      },
                     }}
                   >
                     We’ll keep you informed
@@ -1678,65 +1939,102 @@ bottom: {
 
                   <Typography
                     sx={{
-                      mt: 1.5,
+                      mt: {
+                        xs: 1,
+                        sm: 1.5,
+                      },
                       color: "rgba(255,255,255,0.82)",
-                      lineHeight: 1.7,
+                      lineHeight: 1.6,
                     }}
                   >
-                    {confirmation.sms_consent
+                    {smsConsentEnabled
                       ? "You selected service-related text notifications during signup."
-                      : "Important service information will be provided using the contact details submitted during signup."}
+                      : "You did not select text notifications during signup. Contact Backyard Relief whenever you would like to opt in to arrival notices, completion updates, closed-gate photos, and scheduling alerts."}
                   </Typography>
                 </Box>
 
                 <Box
                   sx={{
                     p: {
-                      xs: 3,
+                      xs: 2.4,
                       sm: 4,
                     },
                     bgcolor: BRAND.white,
                   }}
                 >
-                  <Stack spacing={1.5}>
-                    {[
-                      "Arrival notifications",
-                      "Service completion notifications",
-                      "Closed-gate photo confirmations",
-                      "Scheduling and account updates",
-                    ].map((item) => (
-                      <Box
-                        key={item}
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 1.5,
-                        }}
-                      >
+                  {smsConsentEnabled ? (
+                    <Stack spacing={{ xs: 1.1, sm: 1.5 }}>
+                      {[
+                        "Arrival notifications",
+                        "Service completion notifications",
+                        "Closed-gate photo confirmations",
+                        "Scheduling and account updates",
+                      ].map((item) => (
                         <Box
+                          key={item}
                           sx={{
-                            width: 30,
-                            height: 30,
-                            borderRadius: "50%",
-                            display: "grid",
-                            placeItems: "center",
-                            bgcolor: BRAND.lightGreen,
-                            color: BRAND.green,
-                            fontWeight: 1000,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1.5,
                           }}
                         >
-                          ✓
-                        </Box>
+                          <Box
+                            sx={{
+                              width: 30,
+                              height: 30,
+                              borderRadius: "50%",
+                              display: "grid",
+                              placeItems: "center",
+                              bgcolor: BRAND.lightGreen,
+                              color: BRAND.green,
+                              fontWeight: 1000,
+                            }}
+                          >
+                            ✓
+                          </Box>
 
-                        <Typography
-                          color={BRAND.navy}
-                          fontWeight={750}
-                        >
-                          {item}
-                        </Typography>
-                      </Box>
-                    ))}
-                  </Stack>
+                          <Typography
+                            color={BRAND.navy}
+                            fontWeight={750}
+                          >
+                            {item}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Stack>
+                  ) : (
+                    <Box
+                      sx={{
+                        p: { xs: 2.25, sm: 3 },
+                        borderRadius: 3,
+                        bgcolor: "#FFF8E8",
+                        border: "1px solid rgba(244,185,66,0.35)",
+                      }}
+                    >
+                      <Typography
+                        color={BRAND.navy}
+                        fontWeight={1000}
+                        sx={{ fontSize: "1.12rem" }}
+                      >
+                        SMS notifications are not enabled
+                      </Typography>
+
+                      <Typography
+                        color="text.secondary"
+                        sx={{ mt: 1, lineHeight: 1.7 }}
+                      >
+                        You will not receive arrival notifications, service completion texts, closed-gate photo confirmations, or text-based scheduling alerts unless you opt in.
+                      </Typography>
+
+                      <Typography
+                        color={BRAND.forest}
+                        fontWeight={850}
+                        sx={{ mt: 1.5, lineHeight: 1.65 }}
+                      >
+                        To enable these updates, contact Backyard Relief and ask to opt in to service-related SMS notifications.
+                      </Typography>
+                    </Box>
+                  )}
                 </Box>
               </Box>
             </Paper>
@@ -1744,7 +2042,10 @@ bottom: {
             <Paper
               elevation={0}
               sx={{
-                mt: 7,
+                mt: {
+                  xs: 6.5,
+                  sm: 7,
+                },
                 borderRadius: 5,
                 overflow: "hidden",
                 border: "1px solid rgba(46,125,50,0.12)",
@@ -1770,12 +2071,12 @@ bottom: {
                     display: "grid",
                     placeItems: "center",
                     p: {
-                      xs: 2.5,
+                      xs: 2,
                       sm: 3,
                       md: 4,
                     },
                     minHeight: {
-                      xs: 190,
+                      xs: 170,
                       sm: 220,
                       md: 270,
                     },
@@ -1787,14 +2088,14 @@ bottom: {
                     alt="Rocky, the Backyard Relief mascot"
                     sx={{
                       width: {
-                        xs: 205,
+                        xs: 180,
                         sm: 245,
                         md: 300,
                         lg: 325,
                       },
                       maxWidth: "100%",
                       maxHeight: {
-                        xs: 270,
+                        xs: 235,
                         sm: 310,
                         md: 370,
                       },
@@ -1814,7 +2115,7 @@ bottom: {
                 <Box
                   sx={{
                     p: {
-                      xs: 3.5,
+                      xs: 2.75,
                       sm: 5,
                     },
                     bgcolor: BRAND.white,
@@ -1861,8 +2162,14 @@ bottom: {
                     color="text.secondary"
                     sx={{
                       mt: 1.5,
-                      lineHeight: 1.8,
-                      fontSize: "1.02rem",
+                      lineHeight: {
+                        xs: 1.65,
+                        sm: 1.8,
+                      },
+                      fontSize: {
+                        xs: "0.98rem",
+                        sm: "1.02rem",
+                      },
                     }}
                   >
                     Life is busy, and everyone could use a little more relief.
@@ -1903,9 +2210,15 @@ bottom: {
                     <Typography
                       color="text.secondary"
                       sx={{
-                        lineHeight: 1.8,
+                        lineHeight: {
+                          xs: 1.72,
+                          sm: 1.8,
+                        },
                         fontStyle: "italic",
-                        fontSize: "1rem",
+                        fontSize: {
+                          xs: "0.95rem",
+                          sm: "1rem",
+                        },
                       }}
                     >
                       &ldquo;At Backyard Relief, we believe every customer
@@ -1956,7 +2269,10 @@ bottom: {
 
             <Box
               sx={{
-                mt: 7,
+                mt: {
+                  xs: 6.5,
+                  sm: 7,
+                },
                 display: "grid",
                 gridTemplateColumns: {
                   xs: "1fr",
@@ -1971,7 +2287,10 @@ bottom: {
                   elevation={0}
                   sx={{
                     borderRadius: 4,
-                    p: 3,
+                    p: {
+                      xs: 2,
+                      sm: 3,
+                    },
                     textAlign: "center",
                     bgcolor: BRAND.white,
                     border: "1px solid rgba(22,78,42,0.1)",
@@ -2002,10 +2321,13 @@ bottom: {
             <Paper
               elevation={0}
               sx={{
-                mt: 7,
+                mt: {
+                  xs: 5.5,
+                  sm: 7,
+                },
                 borderRadius: 5,
                 p: {
-                  xs: 3,
+                  xs: 2.5,
                   sm: 4,
                 },
                 bgcolor: "#FFFDF7",
@@ -2019,10 +2341,13 @@ bottom: {
                 color={BRAND.navy}
                 sx={{
                   fontSize: {
-                    xs: "1.25rem",
+                    xs: "1.12rem",
                     sm: "1.45rem",
                   },
-                  lineHeight: 1.75,
+                  lineHeight: {
+                    xs: 1.65,
+                    sm: 1.75,
+                  },
                   fontStyle: "italic",
                   maxWidth: 760,
                   mx: "auto",
@@ -2046,10 +2371,13 @@ bottom: {
             <Paper
               elevation={0}
               sx={{
-                mt: 7,
+                mt: {
+                  xs: 5.5,
+                  sm: 7,
+                },
                 borderRadius: 5,
                 p: {
-                  xs: 3,
+                  xs: 2.5,
                   sm: 5,
                 },
                 textAlign: "center",
@@ -2060,7 +2388,14 @@ bottom: {
                   "0 22px 55px rgba(22,78,42,0.23)",
               }}
             >
-              <Typography sx={{ fontSize: 52 }}>
+              <Typography
+                sx={{
+                  fontSize: {
+                    xs: 46,
+                    sm: 52,
+                  },
+                }}
+              >
                 🎊
               </Typography>
 
@@ -2069,22 +2404,58 @@ bottom: {
                 sx={{
                   mt: 1,
                   fontSize: {
-                    xs: "1.9rem",
+                    xs: "1.72rem",
                     sm: "2.5rem",
                   },
                 }}
               >
-                Welcome to the Backyard Relief family!
+                Welcome to the{" "}
+                <Box
+                  component="span"
+                  sx={{
+                    display: {
+                      xs: "block",
+                      sm: "inline",
+                    },
+                  }}
+                >
+                  Backyard Relief family!
+                </Box>
               </Typography>
 
               <Typography
                 sx={{
-                  mt: 1.5,
+                  display: {
+                    xs: "block",
+                    sm: "none",
+                  },
+                  mt: 1.25,
+                  color: "rgba(255,255,255,0.96)",
+                  fontWeight: 850,
+                  fontSize: "1.02rem",
+                  lineHeight: 1.55,
+                }}
+              >
+                You&apos;re officially part of The Relief Club.
+              </Typography>
+
+              <Typography
+                sx={{
+                  mt: {
+                    xs: 1.25,
+                    sm: 1.5,
+                  },
                   maxWidth: 720,
                   mx: "auto",
                   color: "rgba(255,255,255,0.88)",
-                  lineHeight: 1.75,
-                  fontSize: "1.04rem",
+                  lineHeight: {
+                    xs: 1.6,
+                    sm: 1.75,
+                  },
+                  fontSize: {
+                    xs: "1rem",
+                    sm: "1.04rem",
+                  },
                 }}
               >
                 We’ll take care of the dirty work so you can spend
@@ -2097,13 +2468,23 @@ bottom: {
                 size="large"
                 href="https://www.backyardrelief.com"
                 sx={{
-                  mt: 3,
+                  mt: {
+                    xs: 2.5,
+                    sm: 3,
+                  },
+                  width: {
+                    xs: "90%",
+                    sm: "auto",
+                  },
                   bgcolor: BRAND.white,
                   color: BRAND.forest,
                   fontWeight: 1000,
                   borderRadius: 999,
                   px: 4,
-                  py: 1.4,
+                  py: {
+                    xs: 1.75,
+                    sm: 1.4,
+                  },
                   textTransform: "none",
 
                   "&:hover": {
@@ -2119,9 +2500,18 @@ bottom: {
 
         <Typography
           textAlign="center"
-          color="text.secondary"
           variant="body2"
-          sx={{ mt: 4 }}
+          sx={{
+            mt: 4,
+            color: {
+              xs: "rgba(22,78,42,0.8)",
+              sm: "text.secondary",
+            },
+            fontWeight: {
+              xs: 700,
+              sm: 400,
+            },
+          }}
         >
           Relieved Pets • Clean Yards • Happy Humans
         </Typography>
