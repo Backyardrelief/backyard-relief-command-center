@@ -20,7 +20,7 @@ export const PLANS = [
   {
     key: "Plus",
     name: "Relief Plus",
-    price: 110,
+    price: 115,
     frequency: "weekly",
     stripePriceId: "price_1Tr4VHRtjZ6dFcKRnTsEvHtm",
   },
@@ -28,7 +28,7 @@ export const PLANS = [
   {
     key: "Premium",
     name: "Relief Premium",
-    price: 125,
+    price: 135,
     frequency: "weekly",
     stripePriceId: "price_1Tr4VfRtjZ6dFcKR2GqNn7t7",
   },
@@ -36,7 +36,7 @@ export const PLANS = [
   {
     key: "Elite",
     name: "Relief Elite",
-    price: 150,
+    price: 160,
     frequency: "twice_weekly",
     stripePriceId: "price_1Tr4WIRtjZ6dFcKRLHSO6S7r",
   },
@@ -46,14 +46,14 @@ export const ADD_ONS = [
   {
     key: "offsite_disposal",
     label: "Off-site Disposal",
-    price: 15,
+    price: 20,
     stripePriceId: "price_1Tr4XDRtjZ6dFcKRybHrW7Cd",
   },
 
   {
   key: "yard_deodorizing_monthly",
   label: "WYSIWASH® Yard Sanitizing & Deodorizing (Monthly)",
-  price: 50,
+  price: 20,
   stripePriceId: "price_1Tr4aWRtjZ6dFcKRnLEKYD7O",
 },
 
