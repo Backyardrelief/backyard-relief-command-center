@@ -18,34 +18,87 @@ import Billing from "./pages/Billing";
 import Settings from "./pages/Settings";
 import Map from "./pages/Map";
 import ServiceHistory from "./pages/ServiceHistory";
+import Messages from "./pages/Messages";
 
 function RequireAccess({ children }) {
-  const isUnlocked = localStorage.getItem("br_crm_unlocked") === "true";
+  const expectedAccessCode =
+    import.meta.env.VITE_CRM_ACCESS_CODE;
 
-  if (!isUnlocked) {
-    const code = window.prompt("Enter Backyard Relief CRM access code:");
+  const isUnlocked =
+    localStorage.getItem("br_crm_unlocked") ===
+    "true";
 
-    if (code === import.meta.env.VITE_CRM_ACCESS_CODE) {
-      localStorage.setItem("br_crm_unlocked", "true");
-      return children;
+  /*
+    Repair older unlocked sessions that were created
+    before the CRM access code was stored separately.
+
+    The Messages page uses this stored code when it calls
+    the send-crm-message Supabase Edge Function.
+  */
+  if (isUnlocked) {
+    const storedAccessCode =
+      localStorage.getItem(
+        "br_crm_access_code"
+      );
+
+    if (
+      expectedAccessCode &&
+      storedAccessCode !== expectedAccessCode
+    ) {
+      localStorage.setItem(
+        "br_crm_access_code",
+        expectedAccessCode
+      );
     }
 
-    return <Navigate to="/signup" replace />;
+    return children;
   }
 
-  return children;
+  const code = window.prompt(
+    "Enter Backyard Relief CRM access code:"
+  );
+
+  if (
+    code &&
+    code === expectedAccessCode
+  ) {
+    localStorage.setItem(
+      "br_crm_unlocked",
+      "true"
+    );
+
+    localStorage.setItem(
+      "br_crm_access_code",
+      code
+    );
+
+    return children;
+  }
+
+  localStorage.removeItem(
+    "br_crm_unlocked"
+  );
+
+  localStorage.removeItem(
+    "br_crm_access_code"
+  );
+
+  return <Navigate to="/signup" replace />;
 }
 
 function ProtectedLayout({ children }) {
   return (
     <RequireAccess>
-      <DashboardLayout>{children}</DashboardLayout>
+      <DashboardLayout>
+        {children}
+      </DashboardLayout>
     </RequireAccess>
   );
 }
 
 function RootRedirect() {
-  const hostname = window.location.hostname;
+  const hostname =
+    window.location.hostname;
 
   const shouldOpenCrm =
     hostname.startsWith("crm.") ||
@@ -54,7 +107,11 @@ function RootRedirect() {
 
   return (
     <Navigate
-      to={shouldOpenCrm ? "/dashboard" : "/signup"}
+      to={
+        shouldOpenCrm
+          ? "/dashboard"
+          : "/signup"
+      }
       replace
     />
   );
@@ -64,12 +121,21 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* CRM DOMAIN AND LOCAL DEVELOPMENT OPEN THE DASHBOARD */}
-        <Route path="/" element={<RootRedirect />} />
+        <Route
+          path="/"
+          element={<RootRedirect />}
+        />
 
         {/* PUBLIC CUSTOMER SIGNUP */}
-        <Route path="/signup" element={<Signup />} />
-        <Route path="/signup-success" element={<SignupSuccess />} />
+        <Route
+          path="/signup"
+          element={<Signup />}
+        />
+
+        <Route
+          path="/signup-success"
+          element={<SignupSuccess />}
+        />
 
         {/* PROTECTED CRM */}
         <Route
@@ -86,6 +152,15 @@ export default function App() {
           element={
             <ProtectedLayout>
               <CustomersPage />
+            </ProtectedLayout>
+          }
+        />
+
+        <Route
+          path="/messages"
+          element={
+            <ProtectedLayout>
+              <Messages />
             </ProtectedLayout>
           }
         />
@@ -153,7 +228,10 @@ export default function App() {
           }
         />
 
-        <Route path="*" element={<RootRedirect />} />
+        <Route
+          path="*"
+          element={<RootRedirect />}
+        />
       </Routes>
     </BrowserRouter>
   );

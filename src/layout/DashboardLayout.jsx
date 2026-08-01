@@ -2,8 +2,11 @@ import { Box } from "@mui/material";
 
 import Sidebar from "../components/layout/Sidebar";
 import Topbar from "../components/layout/Topbar";
+import SmsBrowserNotifications from "../components/notifications/SmsBrowserNotifications";
 
-export default function DashboardLayout({ children }) {
+export default function DashboardLayout({
+  children,
+}) {
   return (
     <Box
       sx={{
@@ -22,10 +25,12 @@ export default function DashboardLayout({ children }) {
           flex: 1,
           display: "flex",
           flexDirection: "column",
+
           width: {
             xs: "100%",
             md: "calc(100% - 260px)",
           },
+
           minWidth: 0,
           minHeight: "100dvh",
           overflow: "hidden",
@@ -63,6 +68,8 @@ export default function DashboardLayout({ children }) {
           {children}
         </Box>
       </Box>
+
+      <SmsBrowserNotifications />
     </Box>
   );
 }

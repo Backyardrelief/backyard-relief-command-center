@@ -1,4 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   Box,
@@ -26,13 +31,17 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import MapIcon from "@mui/icons-material/Map";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import HistoryIcon from "@mui/icons-material/History";
+import ForumIcon from "@mui/icons-material/Forum";
 
 import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
 
+import { supabase } from "../../lib/supabase";
+
 const drawerWidth = 260;
+const BASE_DOCUMENT_TITLE = "Backyard Relief CRM";
 
 const menuItems = [
   {
@@ -44,6 +53,12 @@ const menuItems = [
     text: "Customers",
     icon: <PeopleIcon />,
     path: "/customers",
+  },
+  {
+    text: "Messages",
+    icon: <ForumIcon />,
+    path: "/messages",
+    showUnreadBadge: true,
   },
   {
     text: "Schedule",
@@ -130,9 +145,76 @@ export default function Sidebar() {
   const [mobileOpen, setMobileOpen] =
     useState(false);
 
+  const [unreadMessages, setUnreadMessages] =
+    useState(0);
+
+  const loadUnreadCount = useCallback(
+    async () => {
+      const {
+        count,
+        error,
+      } = await supabase
+        .from("sms_messages")
+        .select("id", {
+          count: "exact",
+          head: true,
+        })
+        .eq("direction", "inbound")
+        .eq("is_read", false);
+
+      if (error) {
+        console.error(
+          "Could not load unread SMS count:",
+          error
+        );
+
+        return;
+      }
+
+      setUnreadMessages(count ?? 0);
+    },
+    []
+  );
+
+  useEffect(() => {
+    loadUnreadCount();
+
+    const channel = supabase
+      .channel("sidebar-unread-sms")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "sms_messages",
+        },
+        () => {
+          loadUnreadCount();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadUnreadCount]);
+
+  useEffect(() => {
+    document.title =
+      unreadMessages > 0
+        ? `(${unreadMessages}) ${BASE_DOCUMENT_TITLE}`
+        : BASE_DOCUMENT_TITLE;
+
+    return () => {
+      document.title = BASE_DOCUMENT_TITLE;
+    };
+  }, [unreadMessages]);
+
   useEffect(() => {
     const handleResize = () => {
-      setMobileDevice(detectMobileDevice());
+      setMobileDevice(
+        detectMobileDevice()
+      );
     };
 
     window.addEventListener(
@@ -158,15 +240,15 @@ export default function Sidebar() {
     };
   }, []);
 
-  const usePermanentDrawer = useMemo(() => {
-    return (
+  const usePermanentDrawer = useMemo(
+    () =>
       desktopBreakpoint &&
-      !mobileDevice
-    );
-  }, [
-    desktopBreakpoint,
-    mobileDevice,
-  ]);
+      !mobileDevice,
+    [
+      desktopBreakpoint,
+      mobileDevice,
+    ]
+  );
 
   useEffect(() => {
     if (usePermanentDrawer) {
@@ -253,6 +335,10 @@ export default function Sidebar() {
           const active =
             location.pathname === item.path;
 
+          const hasUnread =
+            item.showUnreadBadge &&
+            unreadMessages > 0;
+
           return (
             <ListItemButton
               key={item.path}
@@ -299,11 +385,37 @@ export default function Sidebar() {
                 primary={item.text}
                 primaryTypographyProps={{
                   fontSize: 16,
-                  fontWeight: active
-                    ? 700
-                    : 400,
+                  fontWeight:
+                    active || hasUnread
+                      ? 700
+                      : 400,
                 }}
               />
+
+              {hasUnread && (
+                <Typography
+                  component="span"
+                  aria-label={`${unreadMessages} unread messages`}
+                  sx={{
+                    minWidth: 26,
+                    height: 22,
+                    px: 0.75,
+                    borderRadius: 10,
+                    backgroundColor: "#C62828",
+                    color: "white",
+                    fontSize: 12,
+                    lineHeight: "22px",
+                    textAlign: "center",
+                    fontWeight: 800,
+                    boxShadow:
+                      "0 1px 3px rgba(0,0,0,0.28)",
+                  }}
+                >
+                  {unreadMessages > 99
+                    ? "99+"
+                    : unreadMessages}
+                </Typography>
+              )}
             </ListItemButton>
           );
         })}
@@ -319,8 +431,10 @@ export default function Sidebar() {
           onClick={openMobileDrawer}
           sx={{
             position: "fixed",
-            top: "max(10px, env(safe-area-inset-top))",
+            top:
+              "max(10px, env(safe-area-inset-top))",
             left: 10,
+
             zIndex: (currentTheme) =>
               currentTheme.zIndex.drawer + 2,
 

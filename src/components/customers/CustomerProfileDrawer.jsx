@@ -26,7 +26,7 @@ import CreditCardIcon from "@mui/icons-material/CreditCard";
 import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 
-import { supabase } from "../supabaseClient";
+import { supabase } from "../../lib/supabase";
 
 function formatCurrency(value) {
   const amount = Number(value);
