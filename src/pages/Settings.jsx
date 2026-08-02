@@ -49,11 +49,27 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 function getCrmAccessCode() {
-  return (
+  const storedCode =
     localStorage.getItem(
       "br_crm_access_code"
-    ) || ""
-  );
+    );
+
+  if (storedCode) {
+    return storedCode;
+  }
+
+  const environmentCode =
+    import.meta.env
+      .VITE_CRM_ACCESS_CODE || "";
+
+  if (environmentCode) {
+    localStorage.setItem(
+      "br_crm_access_code",
+      environmentCode
+    );
+  }
+
+  return environmentCode;
 }
 
 function getDeviceName() {

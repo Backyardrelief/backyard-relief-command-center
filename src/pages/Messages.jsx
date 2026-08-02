@@ -47,6 +47,8 @@ import SearchIcon from "@mui/icons-material/Search";
 import SendIcon from "@mui/icons-material/Send";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 
+import { useSearchParams } from "react-router-dom";
+
 import { supabase } from "../lib/supabase";
 import CustomerDialog from "../components/customers/CustomerDialog";
 import CustomerProfileDrawer from "../components/customers/CustomerProfileDrawer";
@@ -67,7 +69,15 @@ const QUICK_REPLIES = [
 ];
 
 function normalizePhone(value = "") {
-  return String(value).replace(/\D/g, "");
+  const digits = String(value).replace(/\D/g, "");
+
+  // Remove leading US country code so
+  // +13034825293 matches 3034825293
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return digits.slice(1);
+  }
+
+  return digits;
 }
 
 function normalizePhoneForApi(value = "") {
@@ -295,6 +305,10 @@ function getLocalAccessCode() {
 
 export default function Messages() {
   const theme = useTheme();
+  const [searchParams, setSearchParams] =
+    useSearchParams();
+
+  const deepLinkHandledRef = useRef("");
 
   const mobileLayout = useMediaQuery(
     theme.breakpoints.down("md")
@@ -625,6 +639,85 @@ export default function Messages() {
     },
     [markConversationRead, mobileLayout]
   );
+
+  useEffect(() => {
+    if (conversations.length === 0) {
+      return;
+    }
+
+    const customerId =
+      searchParams.get("customer")?.trim() || "";
+
+    const phoneFromUrl =
+      searchParams.get("phone")?.trim() || "";
+
+    if (!customerId && !phoneFromUrl) {
+      return;
+    }
+
+    const deepLinkKey = customerId
+      ? `customer:${customerId}`
+      : `phone:${normalizePhone(phoneFromUrl)}`;
+
+    if (
+      deepLinkHandledRef.current ===
+      deepLinkKey
+    ) {
+      return;
+    }
+
+    const matchingConversation =
+      conversations.find((conversation) => {
+        if (
+          customerId &&
+          String(
+            conversation.customer?.id || ""
+          ) === customerId
+        ) {
+          return true;
+        }
+
+        if (phoneFromUrl) {
+          return (
+            normalizePhone(
+              conversation.phone
+            ) ===
+            normalizePhone(phoneFromUrl)
+          );
+        }
+
+        return false;
+      });
+
+    if (!matchingConversation) {
+      return;
+    }
+
+    deepLinkHandledRef.current =
+      deepLinkKey;
+
+    openConversation(
+      matchingConversation
+    );
+
+    const nextSearchParams =
+      new URLSearchParams(searchParams);
+
+    nextSearchParams.delete("customer");
+    nextSearchParams.delete("phone");
+
+    setSearchParams(
+      nextSearchParams,
+      {
+        replace: true,
+      }
+    );
+  }, [
+    conversations,
+    openConversation,
+    searchParams,
+    setSearchParams,
+  ]);
 
   useEffect(() => {
     if (selectedConversation) {
@@ -1587,21 +1680,18 @@ export default function Messages() {
                   </Tooltip>
 
                   <Tooltip title="Edit customer">
-                    <IconButton
-                      onClick={openEditCustomer}
-                      aria-label="Edit customer"
-                      sx={{
-                        width: 44,
-                        height: 44,
-                        display: {
-                          xs: "none",
-                          sm: "inline-flex",
-                        },
-                      }}
-                    >
-                      <EditIcon />
-                    </IconButton>
-                  </Tooltip>
+  <IconButton
+    onClick={openEditCustomer}
+    aria-label="Edit customer"
+    sx={{
+      width: 44,
+      height: 44,
+      flexShrink: 0,
+    }}
+  >
+    <EditIcon />
+  </IconButton>
+</Tooltip>
                 </>
               ) : (
                 <Tooltip title="Create customer">
