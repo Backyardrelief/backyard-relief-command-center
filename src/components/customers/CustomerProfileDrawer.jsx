@@ -25,6 +25,8 @@ import NotesIcon from "@mui/icons-material/Notes";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
 import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
+import { useNavigate } from "react-router-dom";
 
 import { supabase } from "../../lib/supabase";
 
@@ -167,6 +169,7 @@ export default function CustomerDetailsDrawer({
   const [savingSmsConsent, setSavingSmsConsent] = useState(false);
   const [smsMessage, setSmsMessage] = useState("");
   const [smsError, setSmsError] = useState("");
+  const navigate = useNavigate();
 
   useEffect(() => {
     setSmsConsent(Boolean(customer?.sms_consent));
@@ -225,6 +228,16 @@ export default function CustomerDetailsDrawer({
       setSavingSmsConsent(false);
     }
   }
+
+  function openMessages() {
+  if (!customer?.id) return;
+
+  onClose();
+
+  navigate(
+    `/messages?customer=${customer.id}`
+  );
+}
 
   const fullName =
     `${customer.first_name || ""} ${customer.last_name || ""}`.trim() ||
@@ -608,44 +621,52 @@ export default function CustomerDetailsDrawer({
           />
 
           <Stack
-            direction={{
-              xs: "column",
-              sm: "row",
-            }}
-            spacing={1}
-            sx={{
-              mt: 1.5,
-              width: "100%",
-            }}
-          >
-            <Button
-              fullWidth
-              variant="outlined"
-              startIcon={<PhoneIcon />}
-              href={
-                customer.phone
-                  ? `tel:${customer.phone}`
-                  : undefined
-              }
-              disabled={!customer.phone}
-            >
-              Call
-            </Button>
+  direction="row"
+  spacing={1}
+  sx={{
+    mt: 1.5,
+    width: "100%",
+  }}
+>
+  <Button
+    fullWidth
+    variant="outlined"
+    startIcon={<PhoneIcon />}
+    href={
+      customer.phone
+        ? `tel:${customer.phone}`
+        : undefined
+    }
+    disabled={!customer.phone}
+  >
+    Call
+  </Button>
 
-            <Button
-              fullWidth
-              variant="outlined"
-              startIcon={<EmailIcon />}
-              href={
-                customer.email
-                  ? `mailto:${customer.email}`
-                  : undefined
-              }
-              disabled={!customer.email}
-            >
-              Email
-            </Button>
-          </Stack>
+  <Button
+    fullWidth
+    variant="contained"
+    color="success"
+    startIcon={<ChatBubbleOutlineIcon />}
+    onClick={openMessages}
+    disabled={!customer.phone}
+  >
+    Text
+  </Button>
+
+  <Button
+    fullWidth
+    variant="outlined"
+    startIcon={<EmailIcon />}
+    href={
+      customer.email
+        ? `mailto:${customer.email}`
+        : undefined
+    }
+    disabled={!customer.email}
+  >
+    Email
+  </Button>
+</Stack>
 
           <Divider sx={{ my: 3 }} />
 

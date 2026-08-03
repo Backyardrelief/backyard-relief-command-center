@@ -24,6 +24,11 @@ import { DataGrid } from "@mui/x-data-grid";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CloseIcon from "@mui/icons-material/Close";
+import PhoneIcon from "@mui/icons-material/Phone";
+import EmailIcon from "@mui/icons-material/Email";
+import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
+
+import { useNavigate } from "react-router-dom";
 
 import CustomerDialog from "./CustomerDialog";
 import { eventBus } from "../../lib/eventBus";
@@ -139,6 +144,7 @@ export default function CustomerTable() {
   const [savingSmsConsent, setSavingSmsConsent] = useState(false);
   const [smsMessage, setSmsMessage] = useState("");
   const [smsError, setSmsError] = useState("");
+  const navigate = useNavigate();
 
   useEffect(() => {
     loadCustomers();
@@ -414,6 +420,18 @@ export default function CustomerTable() {
       setSavingSmsConsent(false);
     }
   };
+
+  function openCustomerMessages(customer) {
+  if (!customer?.id) return;
+
+  setDrawerCustomer(null);
+
+  navigate(
+    `/messages?customer=${customer.id}&phone=${encodeURIComponent(
+      customer.phone || ""
+    )}`
+  );
+}
 
   const columns = [
     {
@@ -984,36 +1002,85 @@ export default function CustomerTable() {
             {drawerCustomer?.notes || "—"}
           </Typography>
 
-          <Stack
-            direction={{
-              xs: "column",
-              sm: "row",
-            }}
-            spacing={1}
-          >
-            <Button
-              variant="contained"
-              startIcon={<EditIcon />}
-              onClick={() =>
-                handleEdit(drawerCustomer)
-              }
-              fullWidth
-            >
-              Edit
-            </Button>
+          <>
+  <Stack
+    direction="row"
+    spacing={1}
+    sx={{ mb: 2 }}
+  >
+    <Button
+      fullWidth
+      variant="outlined"
+      startIcon={<PhoneIcon />}
+      href={
+        drawerCustomer?.phone
+          ? `tel:${drawerCustomer.phone}`
+          : undefined
+      }
+      disabled={!drawerCustomer?.phone}
+    >
+      Call
+    </Button>
 
-            <Button
-              color="error"
-              variant="outlined"
-              startIcon={<DeleteIcon />}
-              onClick={() =>
-                setDeleteTarget(drawerCustomer)
-              }
-              fullWidth
-            >
-              Delete
-            </Button>
-          </Stack>
+    <Button
+      fullWidth
+      variant="contained"
+      color="success"
+      startIcon={<ChatBubbleOutlineIcon />}
+      onClick={() =>
+        openCustomerMessages(drawerCustomer)
+      }
+      disabled={!drawerCustomer?.phone}
+    >
+      Text
+    </Button>
+
+    <Button
+      fullWidth
+      variant="outlined"
+      startIcon={<EmailIcon />}
+      href={
+        drawerCustomer?.email
+          ? `mailto:${drawerCustomer.email}`
+          : undefined
+      }
+      disabled={!drawerCustomer?.email}
+    >
+      Email
+    </Button>
+  </Stack>
+
+  <Stack
+    direction={{
+      xs: "column",
+      sm: "row",
+    }}
+    spacing={1}
+  >
+    <Button
+      variant="contained"
+      startIcon={<EditIcon />}
+      onClick={() =>
+        handleEdit(drawerCustomer)
+      }
+      fullWidth
+    >
+      Edit
+    </Button>
+
+    <Button
+      color="error"
+      variant="outlined"
+      startIcon={<DeleteIcon />}
+      onClick={() =>
+        setDeleteTarget(drawerCustomer)
+      }
+      fullWidth
+    >
+      Delete
+    </Button>
+  </Stack>
+</>
         </Box>
       </Drawer>
 
