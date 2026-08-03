@@ -315,6 +315,10 @@ export default function Messages() {
   );
 
   const [messages, setMessages] = useState([]);
+  const [
+  pendingConversationCustomer,
+  setPendingConversationCustomer,
+] = useState(null);
   const [selectedPhone, setSelectedPhone] =
     useState("");
   const [mobileThreadOpen, setMobileThreadOpen] =
@@ -472,6 +476,28 @@ export default function Messages() {
       conversationMap.set(key, existing);
     });
 
+    if (pendingConversationCustomer?.phone) {
+  const pendingPhone =
+    pendingConversationCustomer.phone;
+
+  const pendingKey =
+    normalizePhone(pendingPhone) ||
+    pendingPhone;
+
+  if (!conversationMap.has(pendingKey)) {
+    conversationMap.set(pendingKey, {
+      key: pendingKey,
+      phone: pendingPhone,
+      customer:
+        pendingConversationCustomer,
+      messages: [],
+      unreadCount: 0,
+      latestMessage: null,
+      isNewConversation: true,
+    });
+  }
+}
+
     return Array.from(
       conversationMap.values()
     ).sort((first, second) => {
@@ -485,7 +511,10 @@ export default function Messages() {
 
       return secondDate - firstDate;
     });
-  }, [messages]);
+  }, [
+  messages,
+  pendingConversationCustomer,
+]);
 
   const filteredConversations = useMemo(() => {
     const search = searchValue
@@ -639,6 +668,79 @@ export default function Messages() {
     },
     [markConversationRead, mobileLayout]
   );
+
+  useEffect(() => {
+  const customerId =
+    searchParams.get("customer")?.trim() ||
+    "";
+
+  if (!customerId) {
+    return;
+  }
+
+  const existingConversation =
+    conversations.find(
+      (conversation) =>
+        String(
+          conversation.customer?.id || ""
+        ) === customerId
+    );
+
+  if (existingConversation) {
+    return;
+  }
+
+  let active = true;
+
+  async function loadCustomerForNewConversation() {
+    const {
+      data: customer,
+      error: customerError,
+    } = await supabase
+      .from("customers")
+      .select("*")
+      .eq("id", customerId)
+      .single();
+
+    if (!active) {
+      return;
+    }
+
+    if (customerError) {
+      console.error(
+        "Could not prepare new conversation:",
+        customerError
+      );
+
+      setSendError(
+        "This customer could not be loaded."
+      );
+
+      return;
+    }
+
+    if (!customer?.phone) {
+      setSendError(
+        "This customer does not have a phone number."
+      );
+
+      return;
+    }
+
+    setPendingConversationCustomer(
+      customer
+    );
+  }
+
+  loadCustomerForNewConversation();
+
+  return () => {
+    active = false;
+  };
+}, [
+  conversations,
+  searchParams,
+]);
 
   useEffect(() => {
     if (conversations.length === 0) {
