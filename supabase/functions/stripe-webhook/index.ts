@@ -182,16 +182,32 @@ function getMonthlySubscriptionAmount(
 function getNextBillingDate(
   subscription: Stripe.Subscription,
 ): string | null {
-  const periodEnd = Number(
-    subscription.current_period_end || 0,
-  );
+  const periodEnds =
+    subscription.items?.data
+      ?.map((item) =>
+        Number(
+          item.current_period_end || 0,
+        )
+      )
+      .filter(
+        (value) =>
+          Number.isFinite(value) &&
+          value > 0,
+      ) || [];
 
-  if (!periodEnd) {
+  if (periodEnds.length === 0) {
     return null;
   }
 
+  // Use the earliest upcoming billing date.
+  // Your subscriptions currently use one recurring item,
+  // but this also safely supports multiple items.
+  const nextPeriodEnd = Math.min(
+    ...periodEnds,
+  );
+
   return new Date(
-    periodEnd * 1000,
+    nextPeriodEnd * 1000,
   ).toISOString();
 }
 

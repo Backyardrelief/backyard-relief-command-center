@@ -7,10 +7,19 @@ const allowedOrigins = new Set([
   "http://127.0.0.1:5173",
 ]);
 
+const ALLOWED_MEDIA_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+
 type SendCrmMessageRequest = {
   to_phone?: string;
   body?: string;
   customer_id?: string | null;
+  media_url?: string | null;
+  media_content_type?: string | null;
 };
 
 function getCorsHeaders(origin: string | null) {
@@ -44,23 +53,58 @@ function cleanText(value: unknown): string {
   return String(value ?? "").trim();
 }
 
-function normalizePhoneNumber(phone: string): string | null {
+function normalizePhoneNumber(
+  phone: string,
+): string | null {
   const digits = phone.replace(/\D/g, "");
 
   if (digits.length === 10) {
     return `+1${digits}`;
   }
 
-  if (digits.length === 11 && digits.startsWith("1")) {
+  if (
+    digits.length === 11 &&
+    digits.startsWith("1")
+  ) {
     return `+${digits}`;
   }
 
   return null;
 }
 
+function validateMediaUrl(
+  value: string,
+  supabaseUrl: string,
+): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    const expectedHost =
+      new URL(supabaseUrl).host;
+
+    if (
+      url.protocol !== "https:" ||
+      url.host !== expectedHost ||
+      !url.pathname.startsWith(
+        "/storage/v1/object/public/sms-attachments/",
+      )
+    ) {
+      return null;
+    }
+
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 serve(async (req: Request) => {
   const origin = req.headers.get("origin");
-  const corsHeaders = getCorsHeaders(origin);
+  const corsHeaders =
+    getCorsHeaders(origin);
 
   if (req.method === "OPTIONS") {
     return new Response("ok", {
@@ -81,7 +125,9 @@ serve(async (req: Request) => {
 
   try {
     const suppliedAccessCode = cleanText(
-      req.headers.get("x-crm-access-code"),
+      req.headers.get(
+        "x-crm-access-code",
+      ),
     );
 
     const expectedAccessCode = cleanText(
@@ -90,7 +136,8 @@ serve(async (req: Request) => {
 
     if (
       !expectedAccessCode ||
-      suppliedAccessCode !== expectedAccessCode
+      suppliedAccessCode !==
+        expectedAccessCode
     ) {
       return jsonResponse(
         {
@@ -105,14 +152,64 @@ serve(async (req: Request) => {
     const requestBody =
       (await req.json()) as SendCrmMessageRequest;
 
-    const toPhone = normalizePhoneNumber(
-      cleanText(requestBody.to_phone),
+    const toPhone =
+      normalizePhoneNumber(
+        cleanText(requestBody.to_phone),
+      );
+
+    const messageBody = cleanText(
+      requestBody.body,
     );
 
-    const messageBody = cleanText(requestBody.body);
-
     const customerId =
-      cleanText(requestBody.customer_id) || null;
+      cleanText(
+        requestBody.customer_id,
+      ) || null;
+
+    const mediaContentType = cleanText(
+      requestBody.media_content_type,
+    );
+
+    const supabaseUrl =
+      Deno.env.get("SUPABASE_URL");
+
+    const serviceRoleKey = Deno.env.get(
+      "SUPABASE_SERVICE_ROLE_KEY",
+    );
+
+    const accountSid = Deno.env.get(
+      "TWILIO_ACCOUNT_SID",
+    );
+
+    const authToken = Deno.env.get(
+      "TWILIO_AUTH_TOKEN",
+    );
+
+    const messagingServiceSid =
+      Deno.env.get(
+        "TWILIO_MESSAGING_SERVICE_SID",
+      );
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      throw new Error(
+        "Supabase server configuration is incomplete.",
+      );
+    }
+
+    if (
+      !accountSid ||
+      !authToken ||
+      !messagingServiceSid
+    ) {
+      throw new Error(
+        "Twilio server configuration is incomplete.",
+      );
+    }
+
+    const mediaUrl = validateMediaUrl(
+      cleanText(requestBody.media_url),
+      supabaseUrl,
+    );
 
     if (!toPhone) {
       return jsonResponse(
@@ -126,11 +223,12 @@ serve(async (req: Request) => {
       );
     }
 
-    if (!messageBody) {
+    if (!messageBody && !mediaUrl) {
       return jsonResponse(
         {
           success: false,
-          error: "Message cannot be empty.",
+          error:
+            "Add a message or image before sending.",
         },
         400,
         corsHeaders,
@@ -149,36 +247,36 @@ serve(async (req: Request) => {
       );
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const serviceRoleKey = Deno.env.get(
-      "SUPABASE_SERVICE_ROLE_KEY",
-    );
-
-    const accountSid = Deno.env.get(
-      "TWILIO_ACCOUNT_SID",
-    );
-
-    const authToken = Deno.env.get(
-      "TWILIO_AUTH_TOKEN",
-    );
-
-    const messagingServiceSid = Deno.env.get(
-      "TWILIO_MESSAGING_SERVICE_SID",
-    );
-
-    if (!supabaseUrl || !serviceRoleKey) {
-      throw new Error(
-        "Supabase server configuration is incomplete.",
+    if (
+      requestBody.media_url &&
+      !mediaUrl
+    ) {
+      return jsonResponse(
+        {
+          success: false,
+          error:
+            "The attachment URL is not valid.",
+        },
+        400,
+        corsHeaders,
       );
     }
 
     if (
-      !accountSid ||
-      !authToken ||
-      !messagingServiceSid
+      mediaUrl &&
+      mediaContentType &&
+      !ALLOWED_MEDIA_TYPES.has(
+        mediaContentType,
+      )
     ) {
-      throw new Error(
-        "Twilio server configuration is incomplete.",
+      return jsonResponse(
+        {
+          success: false,
+          error:
+            "Unsupported image type.",
+        },
+        400,
+        corsHeaders,
       );
     }
 
@@ -193,7 +291,9 @@ serve(async (req: Request) => {
       },
     );
 
-    let verifiedCustomerId: string | null = null;
+    let verifiedCustomerId:
+      | string
+      | null = null;
 
     if (customerId) {
       const {
@@ -212,15 +312,17 @@ serve(async (req: Request) => {
       }
 
       if (customer) {
-        const customerPhone = normalizePhoneNumber(
-          cleanText(customer.phone),
-        );
+        const customerPhone =
+          normalizePhoneNumber(
+            cleanText(customer.phone),
+          );
 
         if (
           customerPhone &&
           customerPhone === toPhone
         ) {
-          verifiedCustomerId = customer.id;
+          verifiedCustomerId =
+            customer.id;
         }
       }
     }
@@ -229,64 +331,91 @@ serve(async (req: Request) => {
       `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
 
     const smsStatusWebhookSecret =
-  Deno.env.get("SMS_STATUS_WEBHOOK_SECRET");
+      Deno.env.get(
+        "SMS_STATUS_WEBHOOK_SECRET",
+      );
 
-if (!smsStatusWebhookSecret) {
-  throw new Error(
-    "SMS status webhook configuration is incomplete.",
-  );
-}
+    if (!smsStatusWebhookSecret) {
+      throw new Error(
+        "SMS status webhook configuration is incomplete.",
+      );
+    }
 
-const statusCallbackUrl =
-  "https://ugtqsmrgwnyxzuwrolcz.supabase.co" +
-  "/functions/v1/update-sms-status" +
-  `?secret=${encodeURIComponent(
-    smsStatusWebhookSecret,
-  )}`;
+    const statusCallbackUrl =
+      `${supabaseUrl}/functions/v1/update-sms-status` +
+      `?secret=${encodeURIComponent(
+        smsStatusWebhookSecret,
+      )}`;
 
-const twilioBody = new URLSearchParams({
-  To: toPhone,
-  MessagingServiceSid: messagingServiceSid,
-  Body: messageBody,
-  StatusCallback: statusCallbackUrl,
-});
+    const twilioBody =
+      new URLSearchParams({
+        To: toPhone,
+        MessagingServiceSid:
+          messagingServiceSid,
+        StatusCallback:
+          statusCallbackUrl,
+      });
 
-    const twilioResponse = await fetch(twilioUrl, {
-      method: "POST",
-      headers: {
-        Authorization:
-          `Basic ${btoa(
-            `${accountSid}:${authToken}`,
-          )}`,
-        "Content-Type":
-          "application/x-www-form-urlencoded",
+    if (messageBody) {
+      twilioBody.set(
+        "Body",
+        messageBody,
+      );
+    }
+
+    if (mediaUrl) {
+      twilioBody.append(
+        "MediaUrl",
+        mediaUrl,
+      );
+    }
+
+    const twilioResponse = await fetch(
+      twilioUrl,
+      {
+        method: "POST",
+        headers: {
+          Authorization:
+            `Basic ${btoa(
+              `${accountSid}:${authToken}`,
+            )}`,
+          "Content-Type":
+            "application/x-www-form-urlencoded",
+        },
+        body: twilioBody,
       },
-      body: twilioBody,
-    });
+    );
 
     const twilioData =
       await twilioResponse.json();
 
     if (!twilioResponse.ok) {
-      const errorCode = twilioData?.code
-        ? String(twilioData.code)
-        : null;
+      const errorCode =
+        twilioData?.code
+          ? String(twilioData.code)
+          : null;
 
       const errorMessage =
         cleanText(twilioData?.message) ||
         "Twilio could not send the message.";
 
-      console.error("CRM message failed:", {
-        toPhone,
-        customerId: verifiedCustomerId,
-        errorCode,
-        errorMessage,
-      });
+      console.error(
+        "CRM message failed:",
+        {
+          toPhone,
+          customerId:
+            verifiedCustomerId,
+          errorCode,
+          errorMessage,
+          hasMedia: Boolean(mediaUrl),
+        },
+      );
 
       return jsonResponse(
         {
           success: false,
-          error: "Message failed to send.",
+          error:
+            "Message failed to send.",
           twilio_code: errorCode,
           details: errorMessage,
         },
@@ -300,9 +429,22 @@ const twilioBody = new URLSearchParams({
     );
 
     const messageStatus =
-      cleanText(twilioData.status) || "queued";
+      cleanText(twilioData.status) ||
+      "queued";
 
-    const sentAt = new Date().toISOString();
+    const sentAt =
+      new Date().toISOString();
+
+    const mediaItems = mediaUrl
+      ? [
+          {
+            url: mediaUrl,
+            contentType:
+              mediaContentType ||
+              "image/jpeg",
+          },
+        ]
+      : [];
 
     const {
       data: savedMessage,
@@ -310,16 +452,20 @@ const twilioBody = new URLSearchParams({
     } = await supabase
       .from("sms_messages")
       .insert({
-        customer_id: verifiedCustomerId,
+        customer_id:
+          verifiedCustomerId,
         direction: "outbound",
         from_phone: "+17206059964",
         to_phone: toPhone,
         body: messageBody,
-        twilio_message_sid: messageSid,
-        twilio_account_sid: accountSid,
+        twilio_message_sid:
+          messageSid,
+        twilio_account_sid:
+          accountSid,
         status: messageStatus,
-        media_count: 0,
-        media_urls: [],
+        media_count:
+          mediaItems.length,
+        media_urls: mediaItems,
         is_read: true,
         created_at: sentAt,
       })
@@ -349,12 +495,17 @@ const twilioBody = new URLSearchParams({
       );
     }
 
-    console.log("CRM message sent:", {
-      messageSid,
-      status: messageStatus,
-      toPhone,
-      customerId: verifiedCustomerId,
-    });
+    console.log(
+      "CRM message sent:",
+      {
+        messageSid,
+        status: messageStatus,
+        toPhone,
+        customerId:
+          verifiedCustomerId,
+        hasMedia: Boolean(mediaUrl),
+      },
+    );
 
     return jsonResponse(
       {

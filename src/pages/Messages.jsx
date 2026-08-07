@@ -36,6 +36,7 @@ import {
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import CallIcon from "@mui/icons-material/Call";
+import CloseIcon from "@mui/icons-material/Close";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import EditIcon from "@mui/icons-material/Edit";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
@@ -58,6 +59,15 @@ const LIGHT_GREEN = "#E8F5E9";
 const PAGE_BACKGROUND = "#f5f7fa";
 const CRM_MESSAGE_ENDPOINT =
   "https://ugtqsmrgwnyxzuwrolcz.supabase.co/functions/v1/send-crm-message";
+const MMS_UPLOAD_ENDPOINT =
+  "https://ugtqsmrgwnyxzuwrolcz.supabase.co/functions/v1/upload-sms-attachment";
+const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024;
+const ALLOWED_ATTACHMENT_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
 
 const QUICK_REPLIES = [
   "Thanks for reaching out! How can we help?",
@@ -339,6 +349,8 @@ export default function Messages() {
     useState(false);
   const [sendError, setSendError] =
     useState("");
+  const [selectedAttachment, setSelectedAttachment] =
+    useState(null);
 
   const [quickReplyAnchor, setQuickReplyAnchor] =
     useState(null);
@@ -361,6 +373,7 @@ export default function Messages() {
 
   const threadScrollRef = useRef(null);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const loadMessages = useCallback(
     async ({ silent = false } = {}) => {
@@ -900,6 +913,134 @@ export default function Messages() {
     return entered;
   };
 
+  useEffect(() => {
+    return () => {
+      if (selectedAttachment?.previewUrl) {
+        URL.revokeObjectURL(
+          selectedAttachment.previewUrl
+        );
+      }
+    };
+  }, [selectedAttachment]);
+
+  const clearSelectedAttachment = () => {
+    setSelectedAttachment((currentAttachment) => {
+      if (currentAttachment?.previewUrl) {
+        URL.revokeObjectURL(
+          currentAttachment.previewUrl
+        );
+      }
+
+      return null;
+    });
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleAttachmentChange = (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setSendError("");
+
+    if (!ALLOWED_ATTACHMENT_TYPES.has(file.type)) {
+      event.target.value = "";
+      setSendError(
+        "Use a JPEG, PNG, GIF, or WebP image."
+      );
+      return;
+    }
+
+    if (file.size <= 0) {
+      event.target.value = "";
+      setSendError(
+        "The selected image is empty."
+      );
+      return;
+    }
+
+    if (file.size > MAX_ATTACHMENT_SIZE) {
+      event.target.value = "";
+      setSendError(
+        "Image is too large. Maximum size is 5 MB."
+      );
+      return;
+    }
+
+    setSelectedAttachment((currentAttachment) => {
+      if (currentAttachment?.previewUrl) {
+        URL.revokeObjectURL(
+          currentAttachment.previewUrl
+        );
+      }
+
+      return {
+        file,
+        previewUrl: URL.createObjectURL(file),
+      };
+    });
+  };
+
+  const uploadSelectedAttachment = async ({
+    attachment,
+    accessCode,
+    customerId,
+  }) => {
+    const formData = new FormData();
+
+    formData.append(
+      "file",
+      attachment.file
+    );
+
+    if (customerId) {
+      formData.append(
+        "customer_id",
+        customerId
+      );
+    }
+
+    const response = await fetch(
+      MMS_UPLOAD_ENDPOINT,
+      {
+        method: "POST",
+        headers: {
+          "x-crm-access-code": accessCode,
+        },
+        body: formData,
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || !data?.success) {
+      if (response.status === 401) {
+        localStorage.removeItem(
+          "br_crm_access_code"
+        );
+      }
+
+      throw new Error(
+        data?.details ||
+          data?.error ||
+          "Image could not be uploaded."
+      );
+    }
+
+    if (!data?.attachment?.url) {
+      throw new Error(
+        "The uploaded image URL is missing."
+      );
+    }
+
+    return data.attachment;
+  };
+
   const sendMessage = async () => {
     if (
       !selectedConversation ||
@@ -909,8 +1050,10 @@ export default function Messages() {
     }
 
     const body = messageDraft.trim();
+    const attachmentToSend =
+      selectedAttachment;
 
-    if (!body) {
+    if (!body && !attachmentToSend) {
       return;
     }
 
@@ -937,38 +1080,69 @@ export default function Messages() {
     setSending(true);
     setSendError("");
 
-    const optimisticId =
-      `optimistic-${Date.now()}`;
-
-    const optimisticMessage = {
-      id: optimisticId,
-      customer_id:
-        selectedConversation.customer?.id ?? null,
-      direction: "outbound",
-      from_phone: "+17206059964",
-      to_phone: toPhone,
-      body,
-      status: "sending",
-      media_count: 0,
-      media_urls: [],
-      is_read: true,
-      created_at: new Date().toISOString(),
-      customers:
-        selectedConversation.customer ?? null,
-      optimistic: true,
-    };
-
-    setMessages((currentMessages) => [
-      ...currentMessages,
-      optimisticMessage,
-    ]);
-
-    setMessageDraft("");
-    scrollToBottom({
-      smooth: true,
-    });
+    let uploadedAttachment = null;
+    let optimisticId = "";
 
     try {
+      if (attachmentToSend) {
+        uploadedAttachment =
+          await uploadSelectedAttachment({
+            attachment: attachmentToSend,
+            accessCode,
+            customerId:
+              selectedConversation.customer?.id ??
+              null,
+          });
+      }
+
+      optimisticId =
+        `optimistic-${Date.now()}`;
+
+      const optimisticMediaItems =
+        uploadedAttachment
+          ? [
+              {
+                url: uploadedAttachment.url,
+                contentType:
+                  uploadedAttachment.contentType ||
+                  attachmentToSend?.file?.type ||
+                  "image/jpeg",
+              },
+            ]
+          : [];
+
+      const optimisticMessage = {
+        id: optimisticId,
+        customer_id:
+          selectedConversation.customer?.id ?? null,
+        direction: "outbound",
+        from_phone: "+17206059964",
+        to_phone: toPhone,
+        body,
+        status: "sending",
+        media_count:
+          optimisticMediaItems.length,
+        media_urls:
+          optimisticMediaItems,
+        is_read: true,
+        created_at: new Date().toISOString(),
+        customers:
+          selectedConversation.customer ?? null,
+        optimistic: true,
+      };
+
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        optimisticMessage,
+      ]);
+
+      setMessageDraft("");
+      clearSelectedAttachment();
+
+      scrollToBottom({
+        smooth: true,
+      });
+
       const response = await fetch(
         CRM_MESSAGE_ENDPOINT,
         {
@@ -982,6 +1156,12 @@ export default function Messages() {
             body,
             customer_id:
               selectedConversation.customer?.id ??
+              null,
+            media_url:
+              uploadedAttachment?.url ?? null,
+            media_content_type:
+              uploadedAttachment?.contentType ??
+              attachmentToSend?.file?.type ??
               null,
           }),
         }
@@ -1025,7 +1205,9 @@ export default function Messages() {
       setSnackbar({
         open: true,
         severity: "success",
-        message: "Message sent.",
+        message: uploadedAttachment
+          ? "MMS sent."
+          : "Message sent.",
       });
 
       scrollToBottom({
@@ -1037,19 +1219,21 @@ export default function Messages() {
         sendFailure
       );
 
-      setMessages((currentMessages) =>
-        currentMessages.map((message) =>
-          message.id === optimisticId
-            ? {
-                ...message,
-                status: "failed",
-                error_message:
-                  sendFailure?.message ||
-                  "Message failed to send.",
-              }
-            : message
-        )
-      );
+      if (optimisticId) {
+        setMessages((currentMessages) =>
+          currentMessages.map((message) =>
+            message.id === optimisticId
+              ? {
+                  ...message,
+                  status: "failed",
+                  error_message:
+                    sendFailure?.message ||
+                    "Message failed to send.",
+                }
+              : message
+          )
+        );
+      }
 
       setSendError(
         sendFailure?.message ||
@@ -2014,44 +2198,42 @@ export default function Messages() {
                                   mediaItem,
                                   index
                                 ) => (
-                                  <Button
+                                  <Box
                                     key={`${message.id}-${index}`}
                                     component="a"
-                                    href={
-                                      mediaItem.url
-                                    }
+                                    href={mediaItem.url}
                                     target="_blank"
                                     rel="noreferrer"
-                                    size="small"
-                                    variant={
-                                      outbound
-                                        ? "outlined"
-                                        : "contained"
-                                    }
-                                    startIcon={
-                                      <AttachFileIcon />
-                                    }
                                     sx={{
-                                      justifyContent:
-                                        "flex-start",
-
-                                      color: outbound
-                                        ? "white"
-                                        : BRAND_GREEN,
-
-                                      borderColor:
-                                        outbound
-                                          ? "rgba(255,255,255,0.7)"
-                                          : undefined,
-
-                                      backgroundColor:
-                                        outbound
-                                          ? "transparent"
-                                          : LIGHT_GREEN,
+                                      display: "block",
+                                      width: {
+                                        xs: 220,
+                                        sm: 280,
+                                      },
+                                      maxWidth: "100%",
+                                      borderRadius: 2,
+                                      overflow: "hidden",
+                                      lineHeight: 0,
+                                      border: "1px solid",
+                                      borderColor: outbound
+                                        ? "rgba(255,255,255,0.45)"
+                                        : "divider",
+                                      backgroundColor: "white",
                                     }}
                                   >
-                                    Open attachment
-                                  </Button>
+                                    <Box
+                                      component="img"
+                                      src={mediaItem.url}
+                                      alt="Message attachment"
+                                      loading="lazy"
+                                      sx={{
+                                        display: "block",
+                                        width: "100%",
+                                        maxHeight: 320,
+                                        objectFit: "cover",
+                                      }}
+                                    />
+                                  </Box>
                                 )
                               )}
                             </Stack>
@@ -2161,19 +2343,111 @@ export default function Messages() {
               </Alert>
             )}
 
+            {selectedAttachment && (
+              <Box
+                sx={{
+                  mb: 1,
+                  p: 1,
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 2,
+                  backgroundColor:
+                    PAGE_BACKGROUND,
+                }}
+              >
+                <Stack
+                  direction="row"
+                  spacing={1.25}
+                  alignItems="center"
+                >
+                  <Box
+                    component="img"
+                    src={
+                      selectedAttachment.previewUrl
+                    }
+                    alt="Selected attachment preview"
+                    sx={{
+                      width: 72,
+                      height: 72,
+                      objectFit: "cover",
+                      borderRadius: 1.5,
+                      border: "1px solid",
+                      borderColor: "divider",
+                    }}
+                  />
+
+                  <Box
+                    sx={{
+                      flex: 1,
+                      minWidth: 0,
+                    }}
+                  >
+                    <Typography
+                      variant="body2"
+                      fontWeight={700}
+                      noWrap
+                    >
+                      {
+                        selectedAttachment.file
+                          .name
+                      }
+                    </Typography>
+
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                    >
+                      {(
+                        selectedAttachment.file
+                          .size /
+                        (1024 * 1024)
+                      ).toFixed(2)}{" "}
+                      MB · Ready to send
+                    </Typography>
+                  </Box>
+
+                  <IconButton
+                    aria-label="Remove attachment"
+                    onClick={
+                      clearSelectedAttachment
+                    }
+                    disabled={sending}
+                  >
+                    <CloseIcon />
+                  </IconButton>
+                </Stack>
+              </Box>
+            )}
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              hidden
+              onChange={
+                handleAttachmentChange
+              }
+            />
+
             <Stack
               direction="row"
               spacing={1}
               alignItems="flex-end"
             >
-              <Tooltip title="MMS attachments coming soon">
+              <Tooltip title="Attach an image">
                 <span>
                   <IconButton
-                    disabled
-                    aria-label="Attach file"
+                    aria-label="Attach image"
+                    onClick={() =>
+                      fileInputRef.current?.click()
+                    }
+                    disabled={sending}
                     sx={{
                       width: 44,
                       height: 44,
+                      color: selectedAttachment
+                        ? BRAND_GREEN
+                        : "inherit",
                     }}
                   >
                     <AttachFileIcon />
@@ -2231,7 +2505,8 @@ export default function Messages() {
                 onClick={sendMessage}
                 disabled={
                   sending ||
-                  !messageDraft.trim()
+                  (!messageDraft.trim() &&
+                    !selectedAttachment)
                 }
                 sx={{
                   width: 48,

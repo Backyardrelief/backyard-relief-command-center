@@ -41,6 +41,7 @@ import {
 import { supabase } from "../../lib/supabase";
 
 const drawerWidth = 260;
+const mobileDrawerWidth = "min(320px, 88vw)";
 const BASE_DOCUMENT_TITLE = "Backyard Relief CRM";
 
 const menuItems = [
@@ -288,18 +289,41 @@ export default function Sidebar() {
           display: "flex",
           alignItems: "flex-start",
           justifyContent: "space-between",
+          position: "relative",
         }}
       >
-        <Box>
+        <Box
+          sx={{
+            minWidth: 0,
+            flex: 1,
+            pr: usePermanentDrawer ? 0 : 6,
+          }}
+        >
           <Typography
-            variant="h5"
-            fontWeight={700}
+            fontWeight={800}
+            sx={{
+              fontSize: {
+                xs: 21,
+                sm: 22,
+                md: 22,
+              },
+              lineHeight: 1.15,
+              whiteSpace: "nowrap",
+            }}
           >
-            🐾 Backyard
+            🐾 Backyard Relief
           </Typography>
 
-          <Typography variant="subtitle2">
-            Relief CRM
+          <Typography
+            sx={{
+              mt: 0.5,
+              fontSize: 14,
+              lineHeight: 1.2,
+              opacity: 0.9,
+              whiteSpace: "nowrap",
+            }}
+          >
+            Command Center
           </Typography>
         </Box>
 
@@ -309,8 +333,12 @@ export default function Sidebar() {
             onClick={closeMobileDrawer}
             sx={{
               color: "white",
-              mt: -0.5,
-              mr: -0.5,
+              position: "absolute",
+              top: 12,
+              right: 10,
+              zIndex: 2,
+              width: 40,
+              height: 40,
             }}
           >
             <CloseIcon />
@@ -425,21 +453,27 @@ export default function Sidebar() {
 
   return (
     <>
-      {!usePermanentDrawer && (
+      {!usePermanentDrawer && !mobileOpen && (
         <IconButton
           aria-label="Open navigation menu"
           onClick={openMobileDrawer}
           sx={{
             position: "fixed",
             top:
-              "max(10px, env(safe-area-inset-top))",
-            left: 10,
+              "max(14px, env(safe-area-inset-top))",
+            left: 14,
 
+            /*
+              Keep the menu button above ordinary page
+              content, but below temporary/detail drawers.
+              This prevents it from covering customer,
+              billing, and service-history drawers.
+            */
             zIndex: (currentTheme) =>
-              currentTheme.zIndex.drawer + 2,
+              currentTheme.zIndex.appBar + 1,
 
-            width: 44,
-            height: 44,
+            width: 48,
+            height: 48,
 
             color: "white",
             backgroundColor: "#1B5E20",
@@ -471,8 +505,12 @@ export default function Sidebar() {
         }}
         PaperProps={{
           sx: {
-            width: drawerWidth,
-            maxWidth: "84vw",
+            width: usePermanentDrawer
+              ? drawerWidth
+              : mobileDrawerWidth,
+            maxWidth: usePermanentDrawer
+              ? drawerWidth
+              : "88vw",
             boxSizing: "border-box",
             backgroundColor: "#1B5E20",
             color: "white",
@@ -487,8 +525,12 @@ export default function Sidebar() {
           flexShrink: 0,
 
           "& .MuiDrawer-paper": {
-            width: drawerWidth,
-            maxWidth: "84vw",
+            width: usePermanentDrawer
+              ? drawerWidth
+              : mobileDrawerWidth,
+            maxWidth: usePermanentDrawer
+              ? drawerWidth
+              : "88vw",
           },
         }}
       >
@@ -497,3 +539,4 @@ export default function Sidebar() {
     </>
   );
 }
+

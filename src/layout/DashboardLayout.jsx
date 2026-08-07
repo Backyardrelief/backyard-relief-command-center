@@ -54,8 +54,14 @@ export default function DashboardLayout({
               md: 3.75,
             },
 
+            /*
+              Mobile pages begin below the floating menu
+              button instead of underneath it. Desktop
+              spacing remains unchanged.
+            */
             pt: {
-              xs: 9,
+              xs: 0,
+              sm: 0,
               md: 3.75,
             },
 

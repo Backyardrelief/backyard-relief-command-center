@@ -1,5 +1,15 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+const BUCKET = "sms-attachments";
+const MAX_MEDIA_SIZE = 5 * 1024 * 1024;
+
+const ALLOWED_MEDIA_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -25,19 +35,14 @@ function normalizePhone(value: string): string {
 function formatPhone(value: string): string {
   const digits = normalizePhone(value);
 
-  const tenDigit =
-    digits.length === 11 && digits.startsWith("1")
-      ? digits.slice(1)
-      : digits;
-
-  if (tenDigit.length !== 10) {
+  if (digits.length !== 10) {
     return value;
   }
 
-  return `(${tenDigit.slice(0, 3)}) ${tenDigit.slice(
+  return `(${digits.slice(0, 3)}) ${digits.slice(
     3,
     6,
-  )}-${tenDigit.slice(6)}`;
+  )}-${digits.slice(6)}`;
 }
 
 function getRequiredEnv(name: string): string {
@@ -73,6 +78,221 @@ function createMessagePreview(
   return "Sent a new message";
 }
 
+function getFileExtension(
+  contentType: string,
+): string | null {
+  switch (contentType) {
+    case "image/jpeg":
+      return "jpg";
+
+    case "image/png":
+      return "png";
+
+    case "image/gif":
+      return "gif";
+
+    case "image/webp":
+      return "webp";
+
+    default:
+      return null;
+  }
+}
+
+function safeFolderName(value: string): string {
+  return (
+    value.replace(/[^a-zA-Z0-9_-]/g, "") ||
+    "unknown"
+  );
+}
+
+async function downloadAndStoreTwilioMedia({
+  supabase,
+  mediaUrl,
+  requestedContentType,
+  accountSid,
+  authToken,
+  customerId,
+  fromPhone,
+  messageSid,
+  mediaIndex,
+}: {
+  supabase: ReturnType<typeof createClient>;
+  mediaUrl: string;
+  requestedContentType: string;
+  accountSid: string;
+  authToken: string;
+  customerId: string | null;
+  fromPhone: string;
+  messageSid: string;
+  mediaIndex: number;
+}): Promise<{
+  url: string;
+  contentType: string;
+  path: string;
+} | null> {
+  try {
+    const response = await fetch(mediaUrl, {
+      method: "GET",
+      headers: {
+        Authorization:
+          `Basic ${btoa(
+            `${accountSid}:${authToken}`,
+          )}`,
+      },
+      redirect: "follow",
+    });
+
+    if (!response.ok) {
+      console.error(
+        "Could not download Twilio media:",
+        {
+          mediaIndex,
+          status: response.status,
+          statusText: response.statusText,
+        },
+      );
+
+      return null;
+    }
+
+    const responseContentType = String(
+      response.headers
+        .get("content-type") ?? "",
+    )
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+
+    const contentType =
+      responseContentType ||
+      requestedContentType
+        .split(";")[0]
+        .trim()
+        .toLowerCase();
+
+    if (!ALLOWED_MEDIA_TYPES.has(contentType)) {
+      console.error(
+        "Unsupported incoming MMS media type:",
+        {
+          mediaIndex,
+          contentType,
+        },
+      );
+
+      return null;
+    }
+
+    const extension =
+      getFileExtension(contentType);
+
+    if (!extension) {
+      return null;
+    }
+
+    const buffer =
+      await response.arrayBuffer();
+
+    if (
+      buffer.byteLength <= 0 ||
+      buffer.byteLength > MAX_MEDIA_SIZE
+    ) {
+      console.error(
+        "Incoming MMS media size rejected:",
+        {
+          mediaIndex,
+          size: buffer.byteLength,
+          maxSize: MAX_MEDIA_SIZE,
+        },
+      );
+
+      return null;
+    }
+
+    const folder = safeFolderName(
+      customerId || normalizePhone(fromPhone),
+    );
+
+    const safeMessageSid =
+      safeFolderName(messageSid);
+
+    const objectPath =
+      `${folder}/incoming/` +
+      `${safeMessageSid}-${mediaIndex}-` +
+      `${crypto.randomUUID()}.${extension}`;
+
+    const {
+      error: uploadError,
+    } = await supabase.storage
+      .from(BUCKET)
+      .upload(
+        objectPath,
+        buffer,
+        {
+          contentType,
+          cacheControl: "3600",
+          upsert: false,
+        },
+      );
+
+    if (uploadError) {
+      console.error(
+        "Could not upload incoming MMS media:",
+        {
+          mediaIndex,
+          message: uploadError.message,
+        },
+      );
+
+      return null;
+    }
+
+    const {
+      data: publicUrlData,
+    } = supabase.storage
+      .from(BUCKET)
+      .getPublicUrl(objectPath);
+
+    const publicUrl =
+      publicUrlData?.publicUrl;
+
+    if (!publicUrl) {
+      await supabase.storage
+        .from(BUCKET)
+        .remove([objectPath]);
+
+      console.error(
+        "Could not create public MMS URL:",
+        {
+          mediaIndex,
+          objectPath,
+        },
+      );
+
+      return null;
+    }
+
+    return {
+      url: publicUrl,
+      contentType,
+      path: objectPath,
+    };
+  } catch (error) {
+    console.error(
+      "Incoming MMS processing failed:",
+      {
+        mediaIndex,
+        error:
+          error instanceof Error
+            ? error.message
+            : String(error),
+      },
+    );
+
+    return null;
+  }
+}
+
 async function sendPushNotification({
   supabaseUrl,
   pushSecret,
@@ -96,7 +316,8 @@ async function sendPushNotification({
       {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
+          "Content-Type":
+            "application/json",
           "x-push-secret": pushSecret,
         },
         body: JSON.stringify({
@@ -127,12 +348,15 @@ async function sendPushNotification({
       return;
     }
 
-    console.log("Push notification sent:", {
-      sent: result.sent,
-      failed: result.failed,
-      customerId,
-      fromPhone,
-    });
+    console.log(
+      "Push notification sent:",
+      {
+        sent: result.sent,
+        failed: result.failed,
+        customerId,
+        fromPhone,
+      },
+    );
   } catch (error) {
     console.error(
       "Push notification call failed:",
@@ -175,6 +399,11 @@ Deno.serve(async (req: Request) => {
         "PUSH_NOTIFICATION_SECRET",
       );
 
+    const twilioAuthToken =
+      getRequiredEnv(
+        "TWILIO_AUTH_TOKEN",
+      );
+
     const supabase = createClient(
       supabaseUrl,
       serviceRoleKey,
@@ -186,7 +415,8 @@ Deno.serve(async (req: Request) => {
       },
     );
 
-    const formData = await req.formData();
+    const formData =
+      await req.formData();
 
     const messageSid = String(
       formData.get("MessageSid") ?? "",
@@ -208,13 +438,28 @@ Deno.serve(async (req: Request) => {
       formData.get("Body") ?? "",
     ).trim();
 
-    const numMedia = Number(
+    const parsedNumMedia = Number(
       formData.get("NumMedia") ?? 0,
     );
+
+    const numMedia =
+      Number.isFinite(parsedNumMedia) &&
+      parsedNumMedia > 0
+        ? Math.min(
+            Math.floor(parsedNumMedia),
+            10,
+          )
+        : 0;
 
     if (!messageSid) {
       throw new Error(
         "Twilio MessageSid is missing.",
+      );
+    }
+
+    if (!accountSid) {
+      throw new Error(
+        "Twilio AccountSid is missing.",
       );
     }
 
@@ -233,8 +478,13 @@ Deno.serve(async (req: Request) => {
     const normalizedFrom =
       normalizePhone(fromPhone);
 
-    let customerId: string | null = null;
-    let customerName: string | null = null;
+    let customerId:
+      | string
+      | null = null;
+
+    let customerName:
+      | string
+      | null = null;
 
     const {
       data: customers,
@@ -256,13 +506,16 @@ Deno.serve(async (req: Request) => {
       customers?.find((customer) => {
         return (
           normalizePhone(
-            String(customer.phone ?? ""),
+            String(
+              customer.phone ?? "",
+            ),
           ) === normalizedFrom
         );
       });
 
     if (matchedCustomer) {
-      customerId = matchedCustomer.id;
+      customerId =
+        matchedCustomer.id;
 
       customerName = [
         matchedCustomer.first_name,
@@ -273,10 +526,13 @@ Deno.serve(async (req: Request) => {
         .trim();
     }
 
-    const mediaUrls: Array<{
-      url: string;
-      contentType: string;
-    }> = [];
+    const mediaPromises: Array<
+      Promise<{
+        url: string;
+        contentType: string;
+        path: string;
+      } | null>
+    > = [];
 
     for (
       let index = 0;
@@ -295,13 +551,48 @@ Deno.serve(async (req: Request) => {
         ) ?? "",
       ).trim();
 
-      if (mediaUrl) {
-        mediaUrls.push({
-          url: mediaUrl,
-          contentType: mediaContentType,
-        });
+      if (!mediaUrl) {
+        continue;
       }
+
+      mediaPromises.push(
+        downloadAndStoreTwilioMedia({
+          supabase,
+          mediaUrl,
+          requestedContentType:
+            mediaContentType,
+          accountSid,
+          authToken:
+            twilioAuthToken,
+          customerId,
+          fromPhone,
+          messageSid,
+          mediaIndex: index,
+        }),
+      );
     }
+
+    const processedMedia =
+      await Promise.all(
+        mediaPromises,
+      );
+
+    const mediaUrls =
+      processedMedia
+        .filter(
+          (
+            item,
+          ): item is {
+            url: string;
+            contentType: string;
+            path: string;
+          } => Boolean(item),
+        )
+        .map((item) => ({
+          url: item.url,
+          contentType:
+            item.contentType,
+        }));
 
     const {
       error: insertError,
@@ -314,11 +605,13 @@ Deno.serve(async (req: Request) => {
           from_phone: fromPhone,
           to_phone: toPhone,
           body,
-          twilio_message_sid: messageSid,
+          twilio_message_sid:
+            messageSid,
           twilio_account_sid:
-            accountSid || null,
+            accountSid,
           status: "received",
-          media_count: mediaUrls.length,
+          media_count:
+            mediaUrls.length,
           media_urls: mediaUrls,
           is_read: false,
         },
@@ -331,17 +624,23 @@ Deno.serve(async (req: Request) => {
 
     if (insertError) {
       throw new Error(
-        `Could not save incoming SMS: ${insertError.message}`,
+        `Could not save incoming message: ${insertError.message}`,
       );
     }
 
-    console.log("Incoming SMS saved", {
-      messageSid,
-      fromPhone,
-      toPhone,
-      customerId,
-      mediaCount: mediaUrls.length,
-    });
+    console.log(
+      "Incoming message saved",
+      {
+        messageSid,
+        fromPhone,
+        toPhone,
+        customerId,
+        reportedMediaCount:
+          numMedia,
+        storedMediaCount:
+          mediaUrls.length,
+      },
+    );
 
     const notificationTitle =
       customerName ||
@@ -358,15 +657,17 @@ Deno.serve(async (req: Request) => {
     await sendPushNotification({
       supabaseUrl,
       pushSecret,
-      title: notificationTitle,
+      title:
+        notificationTitle,
       body: notificationBody,
       customerId,
       fromPhone,
       messageSid,
     });
 
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response></Response>`;
+    const twiml =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<Response></Response>`;
 
     return new Response(twiml, {
       status: 200,
@@ -378,12 +679,13 @@ Deno.serve(async (req: Request) => {
     });
   } catch (error) {
     console.error(
-      "Incoming SMS webhook failed:",
+      "Incoming message webhook failed:",
       error,
     );
 
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response></Response>`;
+    const twiml =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<Response></Response>`;
 
     return new Response(twiml, {
       status: 200,
@@ -394,7 +696,7 @@ Deno.serve(async (req: Request) => {
         "X-Webhook-Error":
           error instanceof Error
             ? error.message
-            : "Unknown incoming SMS error",
+            : "Unknown incoming message error",
       },
     });
   }
